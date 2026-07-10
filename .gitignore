@@ -1,11 +1,13 @@
 # Miscellaneous
 *.class
-*.lock
 *.log
 *.pyc
 *.swp
 .buildlog/
 .history
+
+# Keep dependency lockfiles (uv.lock, pubspec.lock) — not covered by the line above
+!*.lock
 
 
 
