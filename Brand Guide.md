@@ -19,35 +19,35 @@ To fulfill the UX requirement for **High-Contrast Visual Systems** while maintai
 
 ### Foundational Colors
 
-| **Role**               | **Tone / Description**          | **Use Case**                                                                     |
-| ---------------------- | ------------------------------- | -------------------------------------------------------------------------------- |
-| **Primary Base**       | Deep Slate Blue (`#1A2332`)     | Used for deep planning layouts on Desktop/Web; softens eye strain indoors.       |
-| **High-Contrast Dark** | Absolute Obsidian (`#0D1117`)   | Used for the Mobile/Outdoor interface to maximize sunlight legibility.           |
-| **Primary Light**      | Alabaster Parchment (`#F4F3EF`) | A subtle, classic off-white used for cards, menus, and clean light-mode layouts. |
-| **Stark Light Accent** | Pure Crisp White (`#FFFFFF`)    | Reserved for critical outdoor typography and icons against dark bases.           |
-| **Muted Neutral**      | Topo Gray (`#707884`)           | Used for subtle secondary text, grid borders, and non-critical map layers.       |
+| **Swatch** | **Role**               | **Tone / Description**          | **Use Case**                                                                     |
+| ---------- | ---------------------- | ------------------------------- | -------------------------------------------------------------------------------- |
+| <span style="display:inline-block;width:24px;height:24px;background-color:#1A2332;border:1px solid #999;border-radius:4px;"></span> | **Primary Base**       | Deep Slate Blue (`#1A2332`)     | Used for deep planning layouts on Desktop/Web; softens eye strain indoors.       |
+| <span style="display:inline-block;width:24px;height:24px;background-color:#0D1117;border:1px solid #999;border-radius:4px;"></span> | **High-Contrast Dark** | Absolute Obsidian (`#0D1117`)   | Used for the Mobile/Outdoor interface to maximize sunlight legibility.           |
+| <span style="display:inline-block;width:24px;height:24px;background-color:#F4F3EF;border:1px solid #999;border-radius:4px;"></span> | **Primary Light**      | Alabaster Parchment (`#F4F3EF`) | A subtle, classic off-white used for cards, menus, and clean light-mode layouts. |
+| <span style="display:inline-block;width:24px;height:24px;background-color:#FFFFFF;border:1px solid #999;border-radius:4px;"></span> | **Stark Light Accent** | Pure Crisp White (`#FFFFFF`)    | Reserved for critical outdoor typography and icons against dark bases.           |
+| <span style="display:inline-block;width:24px;height:24px;background-color:#707884;border:1px solid #999;border-radius:4px;"></span> | **Muted Neutral**      | Topo Gray (`#707884`)           | Used for subtle secondary text, grid borders, and non-critical map layers.       |
 
 ### Routing Theme Semantics
 
 The UX design requires that colors communicate meaning across all platforms (e.g., what a theme color signifies). These subtle, sophisticated jewel tones represent the five P0 MVP route constraints:
 
-- **The Flattest Theme:** **River Valley Teal** (`#1E5E60`)
+- <span style="display:inline-block;width:16px;height:16px;background-color:#1E5E60;border:1px solid #999;border-radius:3px;vertical-align:middle;"></span> **The Flattest Theme:** **River Valley Teal** (`#1E5E60`)
     
     - _Vibe:_ Calm, low-resistance, following the path of least elevation gain.
         
-- **The Most Climbing Theme:** **Ridge Line Terracotta** (`#B85A38`)
+- <span style="display:inline-block;width:16px;height:16px;background-color:#B85A38;border:1px solid #999;border-radius:3px;vertical-align:middle;"></span> **The Most Climbing Theme:** **Ridge Line Terracotta** (`#B85A38`)
     
     - _Vibe:_ Earthy, challenging, high-altitude training.
         
-- **The Lowest Traffic Theme:** **Serene Forest Green** (`#2D5236`)
+- <span style="display:inline-block;width:16px;height:16px;background-color:#2D5236;border:1px solid #999;border-radius:3px;vertical-align:middle;"></span> **The Lowest Traffic Theme:** **Serene Forest Green** (`#2D5236`)
     
     - _Vibe:_ Safe, quiet, isolated rural routing.
         
-- **The Fewest Turns Theme:** **Linear Horizon Blue** (`#2E5B88`)
+- <span style="display:inline-block;width:16px;height:16px;background-color:#2E5B88;border:1px solid #999;border-radius:3px;vertical-align:middle;"></span> **The Fewest Turns Theme:** **Linear Horizon Blue** (`#2E5B88`)
     
     - _Vibe:_ Uninterrupted, straight-line momentum.
         
-- **The Most Art/History Theme:** **Curated Burgundy** (`#722F37`)
+- <span style="display:inline-block;width:16px;height:16px;background-color:#722F37;border:1px solid #999;border-radius:3px;vertical-align:middle;"></span> **The Most Art/History Theme:** **Curated Burgundy** (`#722F37`)
     
     - _Vibe:_ Rich, cultural, anchoring points of interest and architectural landmarks.
         
