@@ -84,8 +84,8 @@ graph TB
 
     subgraph "Render — Hosted"
         HostedAPI["FastAPI (hosted mode)\nmulti-tenant, Starter web service"]
-        RoutingCore2[Routing Core\nsame package, server-invoked]
-        Postgres[(Postgres — Starter)\naccounts, trips, share tokens]
+        RoutingCore2["Routing Core\nsame package, server-invoked"]
+        Postgres["(Postgres — Starter)\naccounts, trips, share tokens"]
         StaticSite[Flutter Web static build\nfree static site]
 
         HostedAPI --> RoutingCore2
@@ -304,8 +304,8 @@ sequenceDiagram
     Hosted->>DB: store hash(token), ttl=15min, purpose=register
     Hosted->>Email: send link containing raw token
     Email-->>Client: user opens link in mail client
-    Client->>Hosted: GET /auth/magic-link/consume?token=...
-    Hosted->>DB: lookup hash(token); atomically mark consumed
+    Client->>Hosted: GET /auth/magic-link/consume?token= ...
+    Hosted->>DB: lookup hash(token), atomically mark consumed
     Hosted-->>Client: registration ticket (5 min, single-purpose)
     Client->>Hosted: POST /auth/webauthn/register/options {ticket}
     Hosted-->>Client: WebAuthn challenge
