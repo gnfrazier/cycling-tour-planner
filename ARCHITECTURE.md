@@ -46,7 +46,7 @@ graph TB
     SRTM[(SRTM elevation\ntiles)]
     OpenElev[open-elevation.com\nfallback API]
     Weather[Weather provider\nTBD — §11.G]
-    Geocoding[Nominatim endpoint\n(via OSMnx's own geocoder)\npublic vs. self-hosted — TBD, §11.V]
+    Geocoding["Nominatim endpoint\n(via OSMnx's own geocoder)\npublic vs. self-hosted — TBD, §11.V"]
     RideWithGPS[RideWithGPS\n GPX/TCX/FIT import]
     StreetView[Google Street View\nStatic API — M9, TBD]
 
