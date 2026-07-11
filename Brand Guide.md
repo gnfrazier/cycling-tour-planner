@@ -45,7 +45,7 @@ The UX design requires that colors communicate meaning across all platforms (e.g
         
 - ![#2E5B88](assets/swatches/2E5B88.svg) **The Fewest Turns Theme:** **Linear Horizon Blue** (`#2E5B88`)
     
-    - _Vibe:_ Uninterrupted, straight-line momentum.
+    - _Vibe:_ Uninterrupted momentum — one road, no decisions, however it bends.
         
 - ![#722F37](assets/swatches/722F37.svg) **The Most Art/History Theme:** **Curated Burgundy** (`#722F37`)
     
@@ -54,23 +54,29 @@ The UX design requires that colors communicate meaning across all platforms (e.g
 
 ## Interface Adaptability & Contrast Modes
 
-As dictated by the ecosystem guidelines, the app must transition flawlessly between comfortable indoor planning and harsh outdoor field execution.
+The app carries one identity, dressed for the conditions. Rather than a manual light/dark toggle, it runs a single **adaptive contrast system** that senses context — device type, viewport size, and, where the platform exposes it, ambient light or the OS's own light/dark setting — and defaults intelligently, so most riders never have to think about it. The two modes below are that same design language wearing two different outfits, not two disconnected interfaces.
 
-### 1. Indoor Contrast Mode (Desktop & Web Defaults)
+### 1. Indoor Contrast Mode (Desktop & Web default)
 
-- **Application:** Full-screen desktop displays during deep planning sessions.
+- **Application:** Full-screen desktop and Web displays during deep planning sessions — the system's default read of a comfortable, well-lit, indoor context.
     
 - **Execution:** Uses richer, slightly softer contrasts (Primary Base over Alabaster Parchment). Information density is maximized to present lodging details, multi-day mileage splits, and weather data concurrently without clutter.
     
 
-### 2. Outdoor Contrast Mode (Mobile Default & Full-Screen Toggle)
+### 2. Outdoor Contrast Mode (Mobile default; available on Desktop/Web)
 
-- **Application:** On-the-bike mobile execution, handlebar mounts, and quick trailhead checks.
+- **Application:** On-the-bike mobile execution, handlebar mounts, and quick trailhead checks — always the default on Mobile, since that context is never ambiguous.
     
 - **Execution:** Drops all subtle mid-tones. Switches to high-contrast monochrome dark mode (Absolute Obsidian background paired with Pure Crisp White text).
     
 - **Theme Integration:** Route lines use the full saturation of their designated theme color accompanied by a high-contrast white border to separate the line cleanly from base map tiles.
     
+
+### Manual Override
+
+Desktop and Web can be handed a context the automatic system reads wrong — a Professional Tour Planner working from a laptop at a sun-exposed trailhead, say. A manual switch exists there as an **override for when the automatic choice is wrong**, not as the primary way most people interact with contrast. Reaching for it should feel like adjusting the room's lighting, not flipping an app setting.
+
+An explicit override is an **account-level preference that syncs** across the user's signed-in devices — set it once and it's already reflected the next time contrast needs correcting elsewhere. The *automatic* default is never overridden by this saved state; it's evaluated fresh per surface, since Mobile's context (always outdoor) and Desktop/Web's context (usually indoor, sometimes not) aren't the same question.
 
 ## Graphic & UI Elements
 
