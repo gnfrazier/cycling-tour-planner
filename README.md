@@ -8,9 +8,10 @@ Everything here is early and likely to shift. There's no code yet, just a produc
 
 If you're poking around, the PRD is the place to start.
 
-GeoTIFF source: 
-Citation
+#### GeoTIFF source:
+
+##### Citation
 European Space Agency (2024). Copernicus Global Digital Elevation Model. Distributed by OpenTopography. https://doi.org/10.5069/G9028PQB. Accessed 2026-07-12
 
-Liscense
+##### Liscense
 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.
