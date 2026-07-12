@@ -7,3 +7,10 @@ This is also very much a learning project. The stack — OSMnx for routing, Fast
 Everything here is early and likely to shift. There's no code yet, just a product requirements doc (`Cycle Tour Planner PRD.md`) laying out the plan: what the app should do, who it's for, and roughly the order things will get built in. Treat it as the current best guess, not a fixed spec — it'll keep evolving as the actual building starts and reality pushes back on the plan.
 
 If you're poking around, the PRD is the place to start.
+
+GeoTIFF source: 
+Citation
+European Space Agency (2024). Copernicus Global Digital Elevation Model. Distributed by OpenTopography. https://doi.org/10.5069/G9028PQB. Accessed 2026-07-12
+
+Liscense
+© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.
