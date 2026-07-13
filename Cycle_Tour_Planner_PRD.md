@@ -345,10 +345,10 @@ The stack is a project goal, not an implementation detail. This section is first
 
 **Requirements**:
 - Graph caching uses OSMnx's own mechanism (`ox.settings.use_cache` + `save_graphml`/`load_graphml`), not a separately managed `.osm.pbf` extract pipeline — one tool for both fetch and cache
-- At least one custom multi-factor scoring function per theme (FR1–FR5), implemented and documented — this is the core "why OSMnx" exercise
-- FR4's turn signal scores navigational maneuvers, not curvature (see FR4)
-- FR13's weighting functions accept weights that **vary by position along the route** (tour default, overridden per day or partial-day segment), not a single global scalar — a meaningfully harder version of the FR1–FR5 exercise
-- **Core allocation (Desktop/Mobile only)**: the client reads `Platform.numberOfProcessors` (Dart) and passes `floor(coreCount / 2)` to OSMnx as its processing core limit, so route computation doesn't starve the UI thread and OS tasks. This does not apply to the server-side OSMnx instance, whose allocation is a fixed setting tied to the Render instance size
+- **Themes are data, not code.** The five MVP themes (FR1–FR5) are **not five algorithms**. They are five instances of a single `WeightProfile` structure — elevation gain, traffic class, turn count, surface penalty, POI bonus, detour budget — fed to **one** multi-factor scoring function. Flattest is `elevation_gain` strongly negative; most-climbing is the same field strongly positive; most-art populates `poi_bonus` and loosens `detour_budget`. Adding a sixth theme is then a configuration entry, not new code, and there is one scoring implementation to debug rather than five. The custom-weighting exercise — the core "why OSMnx" learning goal — lives in that single function and in the profiles that drive it
+- FR4's turn signal scores navigational maneuvers, not curvature (see FR4). This is computed at graph-simplification time, not solve time: OSMnx's `simplify_graph` already collapses interstitial nodes, so a curving road is a *single edge* and its curvature is invisible to the turn counter **by construction** — the requirement falls out of the tool's own model rather than needing a bespoke angle-threshold implementation
+- FR13's weighting functions accept weights that **vary by position along the route** (tour default, overridden per day or partial-day segment), not a single global scalar. This must not become a rewrite: the profile is resolved **per edge** via a `weights.at(position)` lookup, which in the FR1–FR5 scalar case simply returns the same profile every time. Build that lookup returning a constant from M1 — then FR13 at M5 is a change to *one function*, and the solver never learns the difference
+- **Core allocation (Desktop/Mobile only)**: the client reads `Platform.numberOfProcessors` (Dart) and passes `floor(coreCount / 2)` to the routing core as its processing core limit, so route computation doesn't starve the UI thread and OS tasks. The core count is a **parameter passed in by the caller**, never something the routing library discovers for itself — the library must not know or care where it is running. This does not apply to the server-side instance, whose allocation is a fixed setting tied to the Render instance size
 
 ### 5.2 Elevation — GEDTM30 via OpenTopography
 
@@ -364,6 +364,19 @@ The stack is a project goal, not an implementation detail. This section is first
 |-|-|-|
 | **MVP** (M1–M5) | Each device calls the OpenTopography API directly under its own free-tier key (FR38) | Works only because MVP has a handful of users. The 50-calls/24h limit makes this **explicitly disposable** — it is not the target architecture |
 | **Post-MVP** (M6+) | Shared Render-hosted cache: any tile downloaded by any user is cached server-side and served to every subsequent requester | Aggregate OpenTopography calls stay low regardless of user count. Also enables the packaged **North Carolina** content bundle with **Marion, NC** as the default start, so a user with no downloads still opens to a populated app |
+
+**The interface does not change between these phases — only the location of the data does.**
+
+The client requests elevation for a bounding box through **one interface**, from M1 onward. What varies is solely where that interface resolves the data from:
+
+| Phase | Resolution order |
+|-|-|
+| MVP | local cache → OpenTopography |
+| Post-MVP | local cache → **shared Render cache** → OpenTopography |
+
+The M6 transition therefore inserts a lookup step and changes a base URL. It **must not** require a client rewrite, a change to the routing core's elevation reads, or a second code path maintained alongside the first.
+
+**This indirection is built at M1, before it is needed.** That is deliberate: the alternative — hardcoding direct OpenTopography calls at M1 because M1 has no cache to talk to — buys a client rewrite at M6. The cost of building the seam early is a few hours; the cost of not building it is paid later, under more code, with more to break.
 
 ### 5.3 Middle Layer — FastAPI
 
@@ -421,7 +434,8 @@ The stack is a project goal, not an implementation detail. This section is first
 | OSMnx multi-factor weighting across all five themes is harder than expected (elevation/POI/surface data sparse or inconsistent in OSM) | High | Medium | Build and validate the elevation pipeline and POI-tag scoring within M1, before the API/client layers depend on them |
 | Chasing full four-target parity balloons scope | High | Medium | Parity is a direction of travel, not a contract (§6). Sequence targets: Desktop → Web → Mobile |
 | Biometric passkey support has uneven Flutter plugin maturity across Desktop vs. Mobile | Medium | High | Spike passkey auth early (before M5). Where a platform's support is too immature, fall back to the magic-link session that already serves as the new-device and recovery path |
-| Segment-varying weighting (FR13) turns route scoring into a per-position function instead of a scalar | Medium | Medium | Build the single-scalar versions (FR1–FR5) first; treat day/segment overrides as an explicit follow-on iteration on the same functions, not a rewrite |
+| Segment-varying weighting (FR13) turns route scoring into a per-position function instead of a scalar | Medium | Medium | Resolve the weight profile **per edge** via `weights.at(position)` from M1, returning a constant in the FR1–FR5 scalar case (§5.1). FR13 then changes that one lookup, not the solver. Building the scalar case *without* this seam is what would turn FR13 into a rewrite |
+| The M6 elevation-cache transition forces a client rewrite because M1 hardcoded direct OpenTopography calls | Medium | Medium | Build the elevation interface at M1 (§5.2), before there's a cache to talk to. M6 then inserts a lookup step and changes a base URL. Cost of the seam now: a few hours. Cost of skipping it: a rewrite under more code, later |
 | The MVP direct-call elevation flow (FR38) exhausts OpenTopography's 50-calls/24h free-tier limit as users grow even modestly | Medium (rises with users) | Medium | Accepted as a **known throwaway limitation** — FR38 is scoped to a handful of users by design. The M6 shared cache (§5.2) removes it entirely |
 | Coordinate-to-tile management and elevation data voids in the routing core | Medium | Medium | Flat-earth fallback (0.0m) per coordinate so routing never stalls. GEDTM30 has no secondary network fallback by design — it's already a single best source |
 | Self-hosted tile pipeline adds tooling overhead beyond app code; Web has no local generation path | Medium | Medium | Scope to per-trip bbox generation, not a standing tile server. Web fetches from the bounded Render cache (§5.3). Elevation gets its own distinct cache under the same pattern |
@@ -443,7 +457,7 @@ Ordered by dependency, not calendar-dated — this is a solo project.
 
 | # | Milestone | Deliverable | Validates |
 |-|-|-|-|
-| **M1** | Routing spike | OSMnx generates routes for all five themes (FR1–FR5) between two points from a local OSM extract, including the GEDTM30 elevation pipeline via direct OpenTopography calls | Core routing feasibility + elevation sourcing |
+| **M1** | Routing spike | OSMnx generates routes for all five themes (FR1–FR5) between two points from a local OSM extract, including the GEDTM30 elevation pipeline via direct OpenTopography calls. Two seams are built here even though M1 doesn't yet need them: the **elevation interface** (§5.2 — so M6's shared cache is a config change, not a rewrite) and the **`weights.at(position)` lookup** (§5.1 — returning a constant now, so FR13 at M5 is a one-function change) | Core routing feasibility + elevation sourcing, plus the two seams that keep M5 and M6 cheap |
 | **M2** | API wrap | FastAPI returns M1's five theme routes as JSON with OpenAPI docs (FR6) | FastAPI learning goal |
 | **M3** | Desktop client + tiles | Flutter Desktop app renders routes on self-hosted tiles with toggleable layers (FR7, FR8); start/destination selection (FR34); route shape (FR35); first-start region download (FR38); Desktop data pruning (FR39) | Flutter + client-server integration, tile pipeline, cold-start content |
 | **M4** | Export | All five themes export as GPX/TCX/FIT, verified in RideWithGPS (FR9) | **MVP complete** (§3.3) |
