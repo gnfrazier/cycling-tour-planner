@@ -2,187 +2,216 @@
 
 **Status**: Draft
 **Author**: Greg Frazier
-**Date**: 2026-07-08 (revised 2026-07-10 — Web local-first scope narrowed, see §9 item 16; revised 2026-07-13 — elevation source switched to OpenTopography/GEDTM30, weather source set to Open-Meteo, plugin scope expanded, MVP cold-start flow added — see §9)
+**Version**: 2.0 (2026-07-13)
 **Source spec**: `Cycle Tour Planner.md`
 
-\---
+---
 
-## 1\. Executive Summary
+## 1. Executive Summary
 
 **Problem**: Existing cycle route planners (RideWithGPS, Komoot, Strava) optimize for logging and social sharing, not for planning around a *theme or constraint* — flattest route, least traffic, most art, fewest turns — or for multi-day trip logistics like lodging, water stops, and elevation budgets per day.
 
-**Proposed Solution**: A personal, local-first route planning application that generates routes against explicit goals (traffic, surface, elevation, points of interest) and supports multi-day trip planning with offline mobile use.
+**Solution**: A personal, local-first route planning application that generates routes against explicit goals (traffic, surface, elevation, points of interest) and supports multi-day trip planning with offline mobile use.
 
-**Secondary purpose**: This project is explicitly a **learning vehicle**. The technology stack (FastAPI, OSMnx, Flutter/Dart across four targets) is fixed as a project goal in itself, not chosen purely for product fit. Architecture decisions should favor hands-on exposure to these tools over the fastest path to shipping.
+**Secondary purpose**: This project is explicitly a **learning vehicle**. The technology stack (OSMnx, FastAPI, Flutter/Dart across four targets) is fixed as a project goal in itself, not chosen purely for product fit. Architecture decisions favor hands-on exposure to these tools over the fastest path to shipping.
 
-**Success Metrics**:
+**Success metrics**:
 
-* A route can be generated end-to-end locally (OSMnx → FastAPI → Flutter client) for all five MVP theme types (flattest, most climbing, lowest traffic, fewest turns, most art/history)
-* Flutter client builds and runs on at least two of the four targets (e.g. Desktop + Android)
-* GPX/TCX/FIT export from a generated route opens correctly in RideWithGPS
-* Personal usability: the builder (Greg) uses it to plan one real ride
+- A route generates end-to-end (OSMnx → FastAPI → Flutter client) for all five MVP themes
+- The Flutter client builds and runs on at least two of the four targets (e.g. Desktop + Android)
+- GPX/TCX/FIT export opens correctly in RideWithGPS
+- Greg uses it to plan one real ride
 
-\---
+---
 
-## 2\. Problem Definition
+## 2. Problem Definition
 
 ### 2.1 Customer Problem
 
-* **Who**: Four personas — Professional Tour Planner, Individual Weekend Outing Cyclist, Day Tripper, and Guest Rider (no account) (detail in §4.1)
-* **What**: No single tool lets a rider plan routes around a specific goal (flattest, least traffic, most art/history, fewest turns) *and* handle multi-day logistics (lodging, water, weather, per-day mileage/elevation caps) — and a rider who isn't ready to install anything or create an account should still be able to use the core of it
-* **When**: Pre-trip planning, ranging from a single afternoon loop to multi-week point-to-point tours
-* **Where**: Desktop and web for deep planning sessions, mobile for quick route creation, modifications to existing multi-day trips, on-route navigation and offline use
-* **Why**: Mainstream tools are built around segment-chasing and social feed, not goal-driven route generation or trip-level logistics
-* **Impact of not solving**: Manual, spreadsheet-and-map planning; no offline-safe navigation; no thematic routing (art tours, safest roads, lowest traffic)
+- **Who**: Four personas — Professional Tour Planner, Weekend Outing Cyclist, Day Tripper, Guest Rider (§4.1)
+- **What**: No single tool lets a rider plan routes around a specific goal (flattest, least traffic, most art/history, fewest turns) *and* handle multi-day logistics (lodging, water, weather, per-day mileage/elevation caps) — and a rider not ready to install anything or create an account should still be able to use the core of it
+- **When**: Pre-trip planning, from a single afternoon loop to a multi-week point-to-point tour
+- **Where**: Desktop and Web for deep planning; Mobile for quick route creation, trip edits, and offline use on the road
+- **Why**: Mainstream tools are built around segment-chasing and social feeds, not goal-driven route generation or trip-level logistics
+- **Cost of not solving**: Manual spreadsheet-and-map planning; no offline-safe navigation; no thematic routing
 
 ### 2.2 Context
 
-This is a personal project, not a commercial product. There is no market sizing, competitive displacement strategy, or revenue goal — the "business case" is personal utility plus deliberate skill-building in geospatial routing (OSMnx), API design (FastAPI), and cross-platform app development (Flutter).
+A personal project, not a commercial product. No market sizing, no revenue goal. The "business case" is personal utility plus deliberate skill-building in geospatial routing (OSMnx), API design (FastAPI), and cross-platform app development (Flutter).
 
-\---
+---
 
-## 3\. Solution Overview
+## 3. Solution Overview
 
-### 3.1 Proposed Solution
+### 3.1 Architecture Shape
 
-A three-tier system:
+Three tiers:
 
-1. A **local-first routing core** in Python using OSMnx over OpenStreetMap data, capable of generating routes scored against configurable goals (elevation, traffic, surface, points of interest, turn count). Local first does not mean local only, Online should be considered the norm while offline usability remains for the supported features. 
-2. A **FastAPI middle layer** exposing routing, trip, and content operations to clients over HTTP, including account-holder trip sync and a narrower, stateless (server-side) compute path for unauthenticated guest sessions — guest work-in-progress lives entirely in the guest's own browser, not on the server (see §4.4).
-3. A **Flutter/Dart client** shared across Android, iOS, Desktop, and Web, capable of working fully offline on mobile once trip content is downloaded. Web supports both a signed-in mode that aims to come as close to the other targets' planning capability as is practical (syncing like the other targets) and an unauthenticated guest mode that persists in-progress work in the guest's own browser (IndexedDB for route/trip data, localStorage for small preferences) rather than the server — an intentional reversal of the original "thin client, no local persistence" characterization, since the zero-server-storage privacy guarantee was always about server-side storage only, not client-side (see §4.1, §4.4).
+1. **Routing core** — Python + OSMnx over OpenStreetMap data, generating routes scored against configurable goals (elevation, traffic, surface, POIs, turn count). Local-first does not mean local-only: online is the norm, and offline usability is preserved for the features that support it.
+2. **Middle layer** — FastAPI exposing routing, trip, and content operations over HTTP, plus account-holder trip sync and a stateless compute path for unauthenticated guests.
+3. **Client** — one Flutter/Dart codebase across Android, iOS, Desktop, and Web. Mobile and Desktop work fully offline once trip content is downloaded. Web is server-backed and online-only (§4.4).
 
-### 3.2 In Scope (MVP)
+### 3.2 Platform Model
 
-|Feature|FR|Priority|
+The four targets are not uniform, and the differences are deliberate:
+
+| | Desktop | Mobile (Android/iOS) | Web (signed-in) | Web (guest) |
+|-|-|-|-|-|
+| **Routing compute** | Local (OSMnx on device) | Local (OSMnx on device) | Server (FastAPI) | Server (FastAPI) |
+| **Offline capable** | Yes | Yes | No | No |
+| **Trip storage** | Local (SQLite/drift) + server sync | Local (SQLite/drift) + server sync | Server (Postgres) | Browser only (IndexedDB/localStorage) |
+| **Session model** | Passkey | Passkey | Cookie + Postgres session row | None |
+
+**Web is intentionally online-only.** No browser runs the OSMnx routing core without a WASM port that isn't in scope, so Web depends on the hosted service for all compute. There is no offline path to cache against — this is a stated architectural difference, not a gap to close.
+
+**Guest privacy is about server-side storage only.** A guest's in-progress work persists in their own browser so a refresh or closed tab doesn't lose it. Nothing is stored server-side: no email, no account, no personal details. Browser-local state is same-browser/same-device only, is lost if browser data is cleared or private/incognito is used, and never syncs or crosses devices.
+
+### 3.3 MVP Definition
+
+**Core loop**: Set a start location (FR34) → generate a route for each of the five themes (FR1–FR5) via OSMnx → serve through FastAPI → render in the Flutter Desktop client on self-hosted tiles → export as GPX/TCX/FIT (FR9).
+
+**Success criteria**: A real route Greg would actually ride comes out the other end for at least the flattest theme and opens cleanly in RideWithGPS. The other four themes generate and render correctly even if not personally ridden before sign-off.
+
+**Learning goals validated**: non-trivial OSMnx custom weighting functions across distance, elevation, traffic-class, turn-count, and POI-tag signals; local-first elevation sourcing via GEDTM30; a FastAPI service with typed request/response models; a Flutter app rendering self-hosted tiles and a route.
+
+### 3.4 Out of Scope
+
+- Social feed, following, or segment leaderboards
+- Non-cycling activity types (running, driving)
+- Monetization of the core application (see §3.5 for the plugin exception)
+
+### 3.5 Plugin Model
+
+The core application is free and stays free. That is a deliberate licensing decision, not just a pricing preference: both external data dependencies the core relies on — **OpenTopography** (GEDTM30 elevation) and **Open-Meteo** (weather) — are free specifically for non-commercial use, and OpenTopography's API Agreement requires a paid Enterprise key once its API is integrated into a commercial software package. Keeping the core free sidesteps that classification for both dependencies at once.
+
+Plugins sit outside the core's data dependencies, so a plugin can carry a price without dragging the core into commercial-tier licensing. Plugins also allow outside contribution without touching core code.
+
+**Design principle**: data elements are designed into the core schema; the *interface and business logic* of a plugin feature live in the plugin.
+
+Four plugin categories:
+
+| Category | Examples | Why a plugin |
 |-|-|-|
-|Route generation optimized for the flattest theme (minimize elevation gain)|FR1|P0|
-|Route generation optimized for the most-climbing theme (maximize/target elevation gain)|FR2|P0|
-|Route generation optimized for the lowest-traffic theme|FR3|P0|
-|Route generation optimized for the fewest-turns theme (fewest navigational maneuvers, not least road curvature)|FR4|P0|
-|Route generation optimized for the most-art/history theme (POI/tag-based)|FR5|P0|
-|FastAPI endpoint(s) wrapping the OSMnx routing core|FR6|P0|
-|Flutter client (Desktop first) that requests a route and renders it on a map|FR7|P0|
-|User-configurable map layers/tags (landmarks, POIs, parks, construction, etc.), synced per account and bucketed by size class (large/fullscreen vs. compact/phone) — guests stay per-browser|FR8|P0|
-|GPX/TCX/FIT export of a generated route|FR9|P0|
-|Waypoint/checkpoint insertion before routing|FR10|P1|
-|Set min/max daily mileage for multi-day trip splitting|FR11|P1|
-|Road surface tagging and surface-based filtering|FR12|P1|
-|Sliding-scale weighting for elevation gain and surface preference, scoped to whole tour / single day / partial day|FR13|P1|
-|Lodging/campground data along a route, sourced from OpenStreetMap tags|FR14|P1|
-|Trip-dated weather: Historical Weather (historical/seasonal norms) and Weather Forecast (10-day/hourly), both available on Desktop, Web, and Mobile|FR15|P1|
-|Offline package: download a trip's map + content (selected map areas with associated geotiff elevation) for offline use on mobile|FR16|P1|
-|Android/iOS builds from the same Flutter codebase|FR17|P1|
-|Flutter Web build aiming to come as close to Desktop planning parity as practical for a server-backed web client, not just route viewing|FR18|P1|
-|Account system with biometrics-first passkey auth (Face ID/Touch ID/Windows Hello), QR cross-device authorization (FIDO2/CTAP hybrid) as the preferred new-device path, multiple passkeys per account, and magic-link as both a device-registration fallback and an explicit account-recovery path|FR19|P1|
-|Shared routes/trips between users (e.g. tour planner → client)|FR20|P1|
-|Account holder's own trips sync across their signed-in devices (desktop, mobile, web)|FR21|P1|
-|Unauthenticated guest access to core routing, GPX/TCX/FIT export, Historical Weather, and the Weather Forecast via the web app, with no account, no server-side storage, and in-progress work persisted in the guest's own browser|FR22|P1|
-|"Building/architectural interest" themed tours using OSM tagging|FR23|P2|
-|Audio narration of points of interest during a route|FR24|P2|
-|Crowd-sourced route/road/POI feedback with public/private visibility|FR25|P2|
-|Full trip export as GeoJSON with attributes|FR26|P2|
-|Streetview-style imagery during planning — candidate plug-in based feature (proposed, undecided; see §3.6)|FR27|P2|
-|Desktop-only Street View hyperlapse preview via streetwarp-cli — candidate plug-in based feature (proposed, undecided; see §3.6)|FR28|TBD|
-|Rider skill-profile-based route/segment suggestions|FR29|P3 (stretch)|
-|Route/segment suggestions weighted toward frequently-cycled bike routes, greenways, and rail trails — plugin-candidate (§9 item 13)|FR30|TBD (plugin)|
-|Route popularity/heatmap-style data as a routing input — plugin-candidate (§9 item 13)|FR31|TBD (plugin)|
-|Version-check-on-open and on-save: compare the local/last-loaded trip against the server-stored version both at open and immediately before a save; if the server is newer, notify the user and let them save-as (keep both) or overwrite in place|FR32|P1|
-|plug-in based "trip version history" — automatically retain the last 5–10 versions of a trip for rollback|FR33|TBD (future, post-M9)|
-|Set the route's start (and destination/waypoints) via location search/geocoding, map tap, or current GPS location|FR34|P0|
-|Route shape selection — loop, out-and-back, or point-to-point — chosen independently of the five routing themes|FR35|P1|
-|Trip library: list, search, rename, duplicate, and delete saved trips, and view/revoke active shares|FR36|P1|
-|Guest → account claim: on first sign-in from a browser holding guest work-in-progress, offer to import that browser-local trip into the account|FR37|P1|
-|First-start map/elevation download: with no local content yet, user picks exactly one of North Carolina, Wisconsin, or Southern California (LA-centered), downloaded directly from OpenTopography — explicit MVP-only throwaway, not the target cold-start architecture|FR38|P0|
-|Local data pruning (Desktop and Mobile): user can remove downloaded map/elevation content not relevant to a current or future trip, to reclaim device storage|FR39|P1|
-|Core rider profile: height, weight, FTP, average speed, name, home location, dietary/lodging/surface/climbing preference, per-day distance preference, emergency contact name and phone|FR40|P2|
-|Rider profile visibility/access model: default visibility is the rider (data owner) and any Professional Tour Planner explicitly granted access; sensitive fields get an additional access check — see §4.4|FR41|P2|
+| **Output/integration** | Garmin, Wahoo, Coros, indoor ride simulators | Extensibility — riders pick their own device ecosystem |
+| **Route-creation input** | Waypoint sources carrying structured attributes beyond a bare coordinate (amenity type, hours, booking info) | Extensibility |
+| **Data-provider input** | *Road/edge*: live traffic, construction, accidents, scenic byways. *Node/point*: restaurants, lodging, bike shops, businesses. *Shape/area*: parks, property boundaries (first polygon geometry in the app) | **Licensing economics** — live traffic (HERE, TomTom) and curated business data (Google Places, Yelp) rarely have a free non-commercial tier. These are *structurally required* to be plugins if added at all |
+| **Premium features** | Streetview imagery (FR27), hyperlapse (FR28), trip version history (FR33), popularity/heatmap routing (FR30/FR31) | Paid tier and/or metered third-party API dependencies |
 
-### 3.3 Out of Scope (for now)
+**Execution model for output/integration plugins**: Flutter/client-side. Each integration is its own Flutter plugin package holding its own OAuth token and calling that platform's API directly from the device. FastAPI is not a proxy for this category. Tokens use platform-appropriate secure storage (Keychain/Keystore via `flutter_secure_storage`), never the general trip-data persistence layer.
 
-* Social feed, following, or segment leaderboards
-* Non-cycling activity types (running, driving)
+**Status**: The plugin model is the agreed direction. Individual plugin FRs (FR27, FR28, FR30, FR31, FR33) remain unscoped until each is actually taken up. Rider profile data (FR40/FR41) was considered for this list and resolved as **core**, not a plugin — it's account-scoped data every persona needs, not an alternative implementation of a shared capability.
 
-### 3.4 MVP Definition
+---
 
-**Core**: Given a start location (set via geocoded search (online), map tap (online and offline using downloaded map conent), or GPS (online and offline using downloaded map conent) ( — FR34), generate a route recommendation for each of the five MVP themes — flattest (FR1), most climbing (FR2), lowest traffic (FR3), fewest turns (FR4), and most art/history (FR5) — via OSMnx, serve them through FastAPI, render them in a Flutter Desktop client with self-hosted tiles, and export any of them as GPX, TCX, or FIT.
-**Success criteria**: A real route Greg would actually ride comes out the other end for at least the flattest theme, and opens cleanly in RideWithGPS; the other four themes are generated and rendered correctly even if not all are personally ridden before MVP sign-off.
-**Learning goals validated by MVP**: writing non-trivial OSMnx custom weighting functions across distance, elevation, traffic-class, turn-count, and POI-tag signals; local-first elevation sourcing (GEDTM30 via the OpenTopography API); a working FastAPI service with typed request/response models; a Flutter app that calls a local API, renders self-hosted map tiles, and renders a route/layer.
+## 4. Requirements
 
-### 3.5 Future Phase — Streetview Hyperlapse Preview (TBD, Plugin for Desktop only)
+### 4.1 Personas
 
-A final phase, after all other milestones (see M9 in §8), to host or integrate with [streetwarp-cli](https://github.com/pelmers/streetwarp-cli) — a CLI tool that stitches Google Street View imagery along a GPX track into a hyperlapse video. This would let a planner generate a visual preview "drive/ride-through" of a planned route.
+**Professional Tour Planner**
+- Optimizes logistics for clients: lodging along the route, restrooms/water at rest stops, weather by trip date
+- Sets distance/day, min/max elevation gain, wind influence, surface parameters (paved/gravel/off-road/single-track)
+- Plans multi-day point-to-point, loop, or stem-and-loop trips; starts/ends near major cities for airport access
+- Wants frequently-cycled routes, greenways, rail trails; wants heatmap-style popularity data
+- Wants routes rich with local history, art, murals, side trips, restaurants, local events
+- Wants group skill-profile-aware suggestions
+- Maintains rider profiles for their clients (FR40, FR41)
 
-* **Scope**: Desktop only — not mobile, not web. This absence is never silent: a rider who moves from Desktop to Mobile or Web gets a quiet, passively-discoverable, inline note that hyperlapse isn't available on that surface — shown once, not repeated, no interruptive modal — consistent with the offline/quiet-clarity messaging stance (§4.4, §6), applied here to a capability boundary rather than a connectivity one
-* **Status**: Intentionally not designed yet. Implementation approach (self-host the CLI vs. shell out to it vs. a from-scratch reimplementation), how a route in this app maps to streetwarp-cli's GPX input, API-key/credential handling for the Street View Static API, and the UI/interaction for triggering and viewing a hyperlapse are all **TBD**
-* **Known constraint from the upstream tool**: it depends on a Google Maps API key with Street View Static API billing enabled, and on `ffmpeg` — both are dependencies this project hasn't otherwise needed, which is part of why this is scoped to the very end rather than folded into an earlier milestone
-* **Plug-ins framing (proposed, undecided)**: This hyperlapse phase and FR27 (general streetview-style imagery) are candidate plug-in based features, aligned with the proposed plug-in based User concept in §3.6 — both are already login-gated, and the metered, paid Street View Static API dependency makes plug-in based-gating a natural cost control on top of that. This is a proposed direction, not a commitment — see §3.6 for the same monetization tension flagged against §3.3
-* **Related**: FR27 (general streetview-style imagery during planning, not a hyperlapse) is scheduled adjacent to this phase (M9) since it likely shares this section's Street View Static API dependency, billing concern, and now plug-in framing — see §7
-
-### 3.6 Future Phase — Plug-in Trip Version History (TBD)
-
-A proposed plugin-in, scheduled after all other milestones including the streetview/hyperlapse phase (see M10 in §8, after M9) — later than §3.5's already-last phase, since it isn't committed at all yet.
-
-* **Scope**: Account holders only (requires FR19/FR21); would automatically retain the last 5 or 10 versions of a trip (exact count undecided) so a user can roll back to a previous revision instead of only the single current version
-* **Status**: Proposed/undecided, not committed — a future concept, not MVP. Whether this ships as a paid tier at all is unresolved
-* **Known tension**: This is explicitly a monetized, paid-tier feature, which conflicts with the "no monetization of any kind" out-of-scope statement in §3.3. That tension is flagged here, not resolved — if pursued, §3.3 would need to be revisited rather than quietly contradicted
-* **License-driven resolution (2026-07-13)**: The mechanism behind "shift to plugin model" is more concrete than a UX preference. Both external data dependencies the core app now relies on — OpenTopography (GEDTM30 elevation, §5.1, §9 item 2) and Open-Meteo (weather, FR15, §9 item 10) — are free specifically for non-commercial use; OpenTopography's own API Agreement requires a paid Enterprise key once the API is integrated into a commercial software package. Keeping the core app entirely free sidesteps that classification for both dependencies at once, without needing a case-by-case legal read each time a new data source is added. A paid plugin (hyperlapse, and potentially FR33/FR30/FR31/richer-lodging-data if any of those are ever monetized) sits outside the core app's data dependencies entirely, so it can carry a price without dragging the OT/Open-Meteo-dependent core into commercial-tier licensing. This doesn't erase the §3.3 conflict — that formal update is still pending if a paid plugin ships — but it explains why the plugin boundary specifically, rather than some other packaging choice, is the mechanism being reached for
-* **Related**: Builds on the version-check-on-open flow (FR32) and cross-device sync (FR21) — the same server-stored trip versions FR32 already compares against would need to be retained across revisions rather than replaced on overwrite. FR27/FR28 (streetview imagery and hyperlapse, §3.5), FR30/FR31 (frequently-cycled routes and popularity/heatmap data, resolved to plugin-candidate status 2026-07-13 — see §9 item 13), and a richer curated lodging/rest-stop data source (§9 item 11) are also candidate plug-in based features under this same proposed, undecided direction
-
-### 3.7 Future Phase — Plugin Extension Points (Proposed, Undecided, 2026-07-13)
-
-A broader plugin surface than §3.5/§3.6 alone suggested — this organizes Greg's plugin thinking into three structurally distinct categories, each with a different reason for being a plugin rather than core. Like §3.5 and §3.6, this is proposed direction, not committed scope; needs further refinement before any FRs are firm.
-
-* **Output/integration plugins** — push a completed route out to an external platform: Garmin, Wahoo, Coros, and indoor ride simulators (e.g. Zwift-class platforms, TBD which specifically). **Execution model: Flutter/client-side.** Each integration is its own Flutter plugin package holding its own OAuth token and calling that platform's API directly from the device — FastAPI is not a proxy for this category, unlike the account/sync/guest-compute responsibilities it does own (§4.4). This keeps each integration's auth and rate-limit relationship directly between the rider's device and that platform, rather than routing third-party credentials through the hosted service. Client-side OAuth token storage needs secure, platform-appropriate storage (Keychain/Keystore-backed, e.g. `flutter_secure_storage`), not app-local unencrypted storage — see risk in §7
-* **Route-creation input plugins** — alternate ways of specifying start/finish/waypoints that carry structured data attributes beyond a bare coordinate (e.g. a waypoint sourced from a plugin that also tags it with amenity type, hours, or booking info)
-* **Data-provider input plugins**, three distinct geometry shapes:
-  - **Road/edge data**: live traffic, construction, accidents, or scenic byways not present in OSM — augments the routing graph the same way OSM tags already do for FR1–FR5, just from non-OSM sources
-  - **Node/point data**: restaurants, lodging, bike shops, businesses, or other entities that can become waypoints, start locations, or stop locations — a generalization of what FR14 (lodging) and the OSM-tags-are-sufficient resolution (§9 item 11) already do, making the *source* swappable rather than hardcoded to OSM
-  - **Shape/area data**: parks or property boundaries — the first polygon-geometry data type in the app; everything else so far has been points (nodes) or edges (roads/routes)
-* **Why these are plugins is not uniform**: Output/integration plugins are plugins for extensibility and platform-choice reasons — a rider picks which device ecosystem they're in. Data-provider plugins (road, node, shape) are plugins largely for **licensing-economics** reasons, the same mechanism as §3.6's resolution: live traffic (HERE, TomTom, Google), curated business/POI data (Google Places, Yelp), and property-boundary data rarely have a free non-commercial tier the way OSM, OpenTopography, and Open-Meteo do. The core app's "stays free" commitment (§3.6) can't absorb that licensing cost, so these aren't just *candidates* for plugin treatment the way FR27/FR30/FR31/FR33 were — they're structurally required to be plugins if they're ever added at all
-* **Related**: Extends the plugin-candidate list already tracked in §3.6 (FR27/FR28, FR30/FR31, FR33, richer lodging data). Rider/user profile data (height, weight, FTP, home location, preferences, emergency contact, etc.) was also considered for this list but resolved instead as a **core feature** — see FR40/FR41, §4.1, §4.4 — because it's account-scoped data every persona needs, not an alternative implementation of the same capability
-
-\---
-
-## 4\. User Stories \& Requirements
-
-
-### 4.1 Personas (from spec)
-
-**Professional Cycling Tour Planner**
-
-* Optimizes logistics for clients: lodging contacts along the route, restrooms/water at rest stops, Historical Weather by trip date
-* Sets distance/day, min/max elevation gain, wind influence, surface parameters (paved/gravel/off-road/single-track)
-* Plans multi-day point-to-point, loop, or stem-and-loop trips
-* Starts/ends near major cities for airport access
-* Wants frequently-cycled routes, bike routes, greenways, rail trails; wishes for Strava heatmap-style data
-* Wants routes rich with local history, art, murals, side trips, restaurants, and local events
-* Wants group skill-profile-aware route/segment suggestions
-* Wants to access and maintain rider profiles of their clients — see FR40 (core rider profile data), FR41 (visibility/access model)
-
-**Individual Weekend Outing Cyclist**
-
-* Plans single-destination or small-overnight trips for a long weekend
-* Prefers low-cost state/national park campsites
-* Prefers convenience stores/coffee shops/cafes as rest stops
-* Avoids cities; favors rural routes and small towns even at the cost of extra miles
-* Strongly prefers loops; out-and-back is least preferred; point-to-point is interesting but logistically harder
-* Cares about surface type, may restrict to one extreme or the other; seeks adventure, overlooks, waterfalls, vistas
+**Weekend Outing Cyclist**
+- Single-destination or small-overnight trips for a long weekend
+- Prefers low-cost state/national park campsites; convenience stores/cafes as rest stops
+- Avoids cities; favors rural routes and small towns even at the cost of extra miles
+- Strongly prefers loops; out-and-back least preferred
+- Cares about surface type, may restrict to one extreme; seeks overlooks, waterfalls, vistas
 
 **Day Tripper**
-
-* Prefers Round-trips (same start/end point)
-* No route-type preference
-* Primarily mileage- and climb-driven, but wants a destination to anchor the ride
+- Round-trips (same start/end)
+- Mileage- and climb-driven, but wants a destination to anchor the ride
 
 **Guest Rider (no account)**
+- Uses the web app without creating an account — a Tour Planner's client who won't install anything, or a first-time visitor trying the product
+- Can run all five themes, export GPX/TCX/FIT, and view weather — entirely unauthenticated
+- Cannot access plugin features or save to an account
+- In-progress work persists in their own browser (§3.2); signing in offers to import it (FR37)
 
-* Uses the web app without creating an account — either a Professional Tour Planner's client who doesn't want to install anything, or a first-time visitor trying the product before committing to an install
-* Can run all five MVP routing themes, export GPX/TCX/FIT, and check Historical Weather and the Weather Forecast, entirely unauthenticated
-* Cannot view streetview-style imagery/hyperlapse (candidate plug-in features, proposed/undecided — see §3.5, §3.6) or save a trip to an account — both sit behind a login/account boundary, and streetview specifically may sit behind a plug-in based boundary beyond that if the proposed plug-in strategy is ever adopted
-* In-progress work (route/trip, layer toggles, form state) is saved automatically in the guest's own browser — same device, same browser only — so closing the tab, refreshing, or a crash doesn't lose it. Nothing is ever stored server-side: no email, no account, no personal details. That saved state is lost if the user clears browser data or uses private/incognito mode, and never syncs across devices or browsers; export (GPX/TCX/FIT) or signing in are the only ways to keep it anywhere else
-* If a guest later signs in or creates an account from the same browser, the app offers to import that in-progress work into the account rather than discarding it (FR37) — the conversion path from anonymous trial to a saved, synced account trip
+### 4.2 Functional Requirements
 
-### 4.2 Representative User Stories
+#### Routing core (P0)
+
+| ID | Requirement | Priority |
+|-|-|-|
+| FR1 | Route generation optimized for the **flattest** theme (minimize elevation gain) | P0 |
+| FR2 | Route generation optimized for the **most-climbing** theme (maximize/target elevation gain) | P0 |
+| FR3 | Route generation optimized for the **lowest-traffic** theme | P0 |
+| FR4 | Route generation optimized for the **fewest-turns** theme. A turn is a *navigational maneuver* — leaving the current OSM way/named road for a different one, or an intersection requiring a decision — **not** a heading-change angle. Staying on one way as it curves counts as zero turns, however much the road bends | P0 |
+| FR5 | Route generation optimized for the **most-art/history** theme (OSM POI/tag-based, e.g. `tourism=artwork`, `historic=*`) | P0 |
+| FR6 | FastAPI endpoint(s) wrapping the OSMnx routing core, with auto-generated OpenAPI docs | P0 |
+| FR34 | User sets start point — and optional destination and waypoints — via geocoded location search (online), map tap, or device GPS. This is the entry step before any theme routing runs. Offline, a point can only be set within the bounds of downloaded content; outside those bounds the user is prompted to restore connectivity | P0 |
+| FR35 | User selects route shape — loop, out-and-back, or point-to-point — independently of the five themes. Any theme works in any shape. Loop is the default. Point-to-point requires a destination | P1 |
+
+#### Client & display (P0–P1)
+
+| ID | Requirement | Priority |
+|-|-|-|
+| FR7 | Flutter client (Desktop first) requests a route and renders it on a map | P0 |
+| FR8 | User-configurable map layers keyed to OSM tag categories (landmarks, POIs, parks, construction). For signed-in accounts, choices sync per **size class** — large/fullscreen (Desktop, fullscreen Web) and compact/phone (phone-sized Web, installed Mobile) — each class remembering its own set. First entry into an unused size class seeds from a class-appropriate default, never inheriting the other class's set wholesale. Guests keep choices per-browser | P0 |
+| FR9 | GPX/TCX/FIT export of a generated route | P0 |
+| FR38 | On first start with no local map/elevation data, user picks one of **North Carolina, Wisconsin, or Southern California (LA-centered)**, downloaded directly from OpenTopography. **Explicitly a disposable MVP stopgap** — see §5.2 | P0 |
+| FR17 | Android/iOS builds from the shared Flutter codebase, with feature parity for offline trips | P1 |
+| FR18 | Flutter Web build reaching as close to Desktop *planning-feature* parity as practical for a server-backed client. Not offline parity — Web is online-only by design (§3.2) | P1 |
+| FR39 | Local data pruning (Desktop and Mobile): user can view and delete downloaded map/elevation content not needed for a current or upcoming trip. Not applicable to Web | P1 |
+
+#### Trip planning (P1)
+
+| ID | Requirement | Priority |
+|-|-|-|
+| FR10 | Waypoint/checkpoint insertion before routing; route still optimizes for the selected theme *between* waypoints | P1 |
+| FR11 | Min/max daily mileage and elevation caps for multi-day trip splitting | P1 |
+| FR12 | Road surface tagging and surface-based filtering | P1 |
+| FR13 | Sliding-scale weighting for elevation gain and surface preference, scoped to **whole tour / single day / partial day**. Day- or segment-level weights override the tour default only for that scope | P1 |
+| FR14 | Lodging/campground data along a route, sourced from OSM tags | P1 |
+| FR15 | Trip-dated weather via **Open-Meteo**, on all surfaces: **Historical Weather** (seasonal norms, for long-range planning) and **Weather Forecast** (10-day/hourly, as the date nears), both aligned to each day's planned location and date. Attributes: surface temp, min/max, wind speed and direction, precipitation probability and timing, `apparent_temperature` as the combined feels-like reading, plus air quality (PM2.5, PM10, O₃, NO₂, UV, pollen) from Open-Meteo's Air Quality API | P1 |
+| FR16 | Offline package: download a trip's map, route, POI content, and elevation tiles for offline use | P1 |
+| FR36 | Trip library: list, search, rename, duplicate, delete saved trips; view and revoke active shares | P1 |
+
+#### Accounts, sync & sharing (P1)
+
+| ID | Requirement | Priority |
+|-|-|-|
+| FR19 | Biometrics-first passkey auth (Face ID/Touch ID/Windows Hello). New devices authorized preferentially via **QR cross-device authorization** (FIDO2/CTAP hybrid) — no email round-trip. **Magic link** is the fallback when no trusted device is present, and also the explicit account-recovery path. Multiple passkeys bind per account. **No password-only or SMS OTP at any point.** A device awaiting passkey binding is never blocked — it gets full local planning capability immediately; only account-scoped surfaces wait | P1 |
+| FR20 | Share a trip/route with another user (tour planner → client), viewable without the recipient having an account. Revocable | P1 |
+| FR21 | Account holder's own trips sync across their signed-in devices via a canonical per-account copy in Postgres. Also carries non-trip preferences: layer visibility by size class (FR8) and the contrast-mode override (§6) | P1 |
+| FR22 | Unauthenticated guest web sessions run all five themes (FR1–FR5), export GPX/TCX/FIT (FR9), and view both weather types (FR15). In-progress work persists browser-locally; nothing is stored server-side | P1 |
+| FR32 | **Version check on open and on save.** Each signed-in client compares its local/last-loaded trip against the server version at launch *and again immediately before committing a save* — the second check catches two devices editing the same version in parallel. If the server is newer, the user chooses: save-as (keep both) or overwrite in place. **No trip is ever silently overwritten.** Does not apply to guests | P1 |
+| FR37 | On first sign-in from a browser holding guest work-in-progress, offer to import that trip into the account. Explicit choice — never silently discarded, never silently uploaded | P1 |
+
+#### Rider profile (P2)
+
+| ID | Requirement | Priority |
+|-|-|-|
+| FR40 | Rider profile: height, weight, FTP, average speed, name, home location, dietary preference, lodging preference, surface preference, climbing preference, per-day distance preference, emergency contact name, emergency contact phone. Riding-preference fields seed the *defaults* that FR12/FR13 already allow to be overridden per trip, day, or segment — not a competing second system. **Core, not a plugin** | P2 |
+| FR41 | Rider profile visibility: restricted by default to the rider. Granting a Tour Planner access presents **per-field checkboxes** — opt-in per field, defaulting to the least-shared state (nothing visible until explicitly checked). A distinct, explicit grant, never an automatic side effect of a shared trip (FR20) or sync (FR21) | P2 |
+
+#### Content & extended features (P2–P3)
+
+| ID | Requirement | Priority |
+|-|-|-|
+| FR23 | "Building/architectural interest" themed tours using OSM tagging | P2 |
+| FR24 | Audio narration for POIs selected during planning | P2 |
+| FR25 | Crowd-sourced image/feedback upload on routes, roads, intersections, POIs, with public/private visibility | P2 |
+| FR26 | Full trip export as GeoJSON with attributes | P2 |
+| FR29 | Route/segment suggestions based on a group's rider skill profiles | P3 (stretch) |
+
+#### Plugin features (unscoped — see §3.5)
+
+| ID | Requirement | Status |
+|-|-|-|
+| FR27 | Streetview-style/point-of-view imagery during planning | Plugin — unscoped |
+| FR28 | Desktop-only Street View hyperlapse preview via [streetwarp-cli](https://github.com/pelmers/streetwarp-cli). Depends on a Google Maps API key with Street View Static API billing, and `ffmpeg`. Absent on Mobile/Web — that absence is explained in-product at the handoff, never silent | Plugin — unscoped |
+| FR30 | Route/segment suggestions weighted toward frequently-cycled routes, greenways, rail trails | Plugin — unscoped |
+| FR31 | Route/segment popularity (heatmap-style) data as a routing input. No OSM-native equivalent | Plugin — unscoped |
+| FR33 | Trip version history: retain the last 5–10 versions of a trip for rollback. Builds on FR32's server-stored versions | Plugin — unscoped |
+
+### 4.3 Representative User Stories
 
 ```
 As a Day Tripper
@@ -190,30 +219,10 @@ I want a "flattest route" option that minimizes total elevation gain from my sta
 So that I can pick a ride that matches an easy-effort day
 
 Acceptance Criteria:
-- \[ ] Returned route's total elevation gain is at or near the minimum achievable within the requested distance range
-- \[ ] Route uses locally-cached GEDTM30 elevation tiles as the source, falling back to a flat-earth assumption (0.0m elevation change) only for a coordinate with a genuine data void, never stalling or erroring
-- \[ ] Route remains a valid, rideable path (no off-road/unrideable segments) even when elevation is heavily weighted
-```
-
-```
-As a Weekend Outing Cyclist
-I want a "most climbing" option that maximizes elevation gain within my distance budget
-So that I can use the ride as a hill-training day
-
-Acceptance Criteria:
-- \[ ] Returned route's total elevation gain is at or above a configurable minimum-climbing target where a routing alternative exists
-- \[ ] The route still respects the rider's surface and distance constraints, not climbing alone
-```
-
-```
-As a Weekend Outing Cyclist
-I want to generate a loop route that avoids cities and prioritizes low traffic
-So that I can ride rural roads without manually stitching together a route
-
-Acceptance Criteria:
-- \[ ] Route returned is a loop (start == end)
-- \[ ] Route avoids road segments above a traffic-class threshold — set as a global user default and optionally overridden per route
-- \[ ] Route stays outside city boundaries where a rural alternative exists within a detour budget — set as a global default (in both miles and minutes) and optionally overridden per route (also in both miles and minutes)
+- [ ] Total elevation gain is at or near the minimum achievable within the requested distance range
+- [ ] Elevation comes from locally-cached GEDTM30 tiles; a genuine data void falls back to a
+      flat-earth assumption (0.0m change) for that coordinate — never stalling or erroring
+- [ ] Route remains valid and rideable even when elevation is heavily weighted
 ```
 
 ```
@@ -222,105 +231,23 @@ I want a "fewest turns" option
 So that I can ride a simpler route with less need to check directions
 
 Acceptance Criteria:
-- \[ ] Returned route has the lowest count of navigational maneuvers achievable within the requested distance/theme constraints — not the straightest or least-curved path
-- \[ ] A "turn" is defined as a navigational maneuver: leaving the current OSM way/named road for a different one, or negotiating an intersection that requires a decision/maneuver — not a heading-change angle threshold. Staying on the same way as it curves counts as zero turns, however much the road bends
-- \[ ] A single continuous road followed for many miles scores as the happy path even if curvy; a route that weaves through many short segments to cover the same distance (e.g. a neighborhood grid, turning every block) scores as the unhappy path, even if each individual segment is straight
-- \[ ] The maneuver-based turn definition is documented
+- [ ] Route has the lowest count of navigational maneuvers achievable within the distance/theme constraints
+- [ ] A single continuous road followed for miles scores well even if curvy
+- [ ] A route weaving through a neighborhood grid (turning every block) scores poorly, even though
+      each individual segment is straight
+- [ ] The maneuver-based turn definition is documented
 ```
 
 ```
 As a Professional Tour Planner
-I want a "most art/history" option that favors roads passing OSM-tagged artwork, murals, and historic sites
-So that I can build a themed cultural tour for clients
+I want to weight elevation and surface on a sliding scale, for the whole tour, a day, or part of a day
+So that I can front-load climbing on day 1 while riders are fresh, and favor gravel through day 3
 
 Acceptance Criteria:
-- \[ ] Returned route is scored/ranked by count or density of relevant OSM tags (e.g. tourism=artwork, historic=\*) encountered along the way, not just distance
-- \[ ] Route remains within a configurable maximum-detour budget relative to the shortest path
-```
-
-```
-As a Weekend Outing Cyclist
-I want to turn off map layers I don't care about (e.g. construction) and turn on ones I do (e.g. parks)
-So that the map isn't cluttered with tags irrelevant to how I ride
-
-Acceptance Criteria:
-- \[ ] Available OSM tag categories (landmarks, POIs, parks, construction, etc.) are shown as toggleable layers, not buried in a settings submenu
-- \[ ] For a signed-in account, layer visibility choices persist and sync per size class: large/fullscreen (Desktop, fullscreen Web) and compact/phone (phone-sized Web, installed Android/iOS) each remember their own set, and both sync across the account's devices
-- \[ ] A signed-in user's fullscreen-laptop-at-home config appears on a fullscreen desktop at work and on fullscreen Web; their phone-web config aligns with the installed phone app — without forcing the same layer set across both size classes
-- \[ ] Crossing size classes is not a reset: switching from a large/fullscreen surface to a compact/phone one (or back) loads that class's own remembered set, not a blank or default view
-- \[ ] The first time an account enters a size class it's never used before, layers seed from a default appropriate to that class — never an empty view, and never by inheriting the other class's set wholesale (a dense large/fullscreen config must not flood a compact/phone surface on first open)
-- \[ ] A windowed (non-fullscreen) large-screen client follows its actual viewport size — resizing the window below the large/fullscreen threshold moves it into the compact set, and layers adjust accordingly; this is intentional, not a bug
-- \[ ] Guest Rider sessions keep layer choices per-browser only (no account, no cross-surface alignment), consistent with FR22's browser-local persistence
-- \[ ] Turning a layer off removes it from the map without requiring a reload/re-route
-```
-
-```
-As any persona
-I want to export a planned route as a GPX, TCX, or FIT file
-So that I can load it into RideWithGPS or my bike computer
-
-Acceptance Criteria:
-- \[ ] Exported GPX validates against the GPX 1.1 schema
-- \[ ] Exported TCX validates against the Garmin TrainingCenterDatabase schema
-- \[ ] Exported FIT validates against the Garmin FIT SDK's course/route message format
-- \[ ] Track points, elevation, and waypoints are present in all three formats
-- \[ ] Files open without error in RideWithGPS
-```
-
-```
-As a Professional Tour Planner
-I want to insert waypoints/checkpoints that a generated route must pass through
-So that I can guarantee a route hits client-requested stops (e.g. a specific lunch spot or overlook)
-
-Acceptance Criteria:
-- \[ ] Route generation honors all inserted waypoints in the order specified
-- \[ ] Route still optimizes for the selected theme between waypoints, not just nearest-path stitching
-- \[ ] Waypoints can be added, reordered, or removed before a route is (re)generated
-```
-
-```
-As a Professional Tour Planner
-I want to set min/max daily mileage and elevation caps for a multi-day trip
-So that the system splits a long route into rider-appropriate daily segments
-
-Acceptance Criteria:
-- \[ ] Trip is split into days respecting min/max mileage constraints
-- \[ ] Each day's elevation gain stays under the configured cap where a routing alternative exists
-- \[ ] Overnight points align with lodging/campsite data where available
-```
-
-```
-As a Weekend Outing Cyclist
-I want to restrict or bias routing toward a specific road surface (e.g. gravel-only, paved-only)
-So that I can match the ride to my bike and skill level
-
-Acceptance Criteria:
-- \[ ] User can set a surface preference from "avoid" to "prefer" on a sliding scale, or a hard restriction to a single surface type
-- \[ ] Route generation respects the restriction where a valid path exists, and clearly reports when it cannot be honored without a large detour
-```
-
-```
-As a Professional Tour Planner
-I want to weight elevation gain and surface preference on a sliding scale, for the whole tour, a single day, or part of a day
-So that I can front-load climbing on day 1 while riders are fresh, and favor gravel through day 3 where the scenic unpaved terrain is worth the detour
-
-Acceptance Criteria:
-- \[ ] Elevation-gain and surface-type preference can each be set on a sliding scale (e.g. avoid ↔ prefer)
-- \[ ] A weighting can be scoped to the whole tour, one full day, or a partial-day segment
-- \[ ] Day- or segment-level weights override the tour-level default only for that scope, without requiring the whole trip to be re-planned from scratch
-```
-
-```
-As a Professional Tour Planner
-I want to see lodging and campground options along a multi-day route, and expected weather for each day's date
-So that I can book overnight stays and set client expectations for conditions
-
-Acceptance Criteria:
-- \[ ] Lodging/campground POIs sourced from OSM tags are shown near each day's endpoint
-- \[ ] Historical Weather (historical/seasonal norms) for the trip's planned dates is shown on Desktop, Web, and Mobile when planning far in advance
-- \[ ] Weather Forecast (10-day/hourly) for upcoming days is shown on Desktop, Web, and Mobile as the trip date nears, aligned to each day's planned location, not just the trip's start point
-- \[ ] All three surfaces show Historical Weather and the Weather Forecast together, so the rider keeps the planning-time context alongside the near-term view
-- \[ ] A Weather Forecast shown while offline is conspicuously stamped with its retrieval time/age (e.g. "forecast as of Tue 6pm") so a stale cached forecast is never mistaken for a current one
+- [ ] Elevation-gain and surface preference are each settable on a sliding scale (avoid ↔ prefer)
+- [ ] A weighting can be scoped to the whole tour, one full day, or a partial-day segment
+- [ ] Day/segment weights override the tour default only for that scope, without re-planning
+      the whole trip from scratch
 ```
 
 ```
@@ -329,105 +256,28 @@ I want previously-downloaded trip content to work with no network connection
 So that I can navigate and view POI info in areas with no cell signal
 
 Acceptance Criteria:
-- \[ ] Route, map tiles, and POI content for a trip can be downloaded in advance
-- \[ ] App functions with zero errors in airplane mode for a downloaded trip
-- \[ ] Features that work fully offline show no offline messaging at all — they simply work
-- \[ ] No feature silently fails: any limitation is always user-visible, but passively discoverable — a persistent, unobtrusive status indicator, or an inline note at the boundary of the specific feature that needs connectivity — never an interruptive popup, toast, or modal, and never repeated
-```
-
-```
-As any account holder
-I want to authenticate with a passkey (Face ID/Touch ID/Windows Hello)
-So that I can access my trips securely without managing a password
-
-Acceptance Criteria:
-- \[ ] A new device is authorized by scanning a QR code with an already-registered, trusted device (FIDO2/CTAP hybrid "use a passkey from another device" flow) — no email or magic-link round-trip, no personal details required; this is the preferred new-device path
-- \[ ] A passwordless magic link is the fallback new-device path when no already-trusted device is present, and also serves as an explicit account-recovery path if all bound passkeys are lost
-- \[ ] An account can bind multiple passkeys (e.g. phone, laptop, tablet) — losing one device does not lock the account out
-- \[ ] Returning sessions authenticate via biometric passkey with no password or SMS OTP prompt at any point
-- \[ ] A device awaiting passkey binding is never blocked from the app: it gets full local-first/browser-local planning capability (route generation, layer toggles, GPX/TCX/FIT export) immediately; only account-scoped surfaces (synced trips, save-to-account, sharing-back) wait on the passkey
-- \[ ] The auth flow behaves identically in shape (not necessarily UI) across mobile and desktop
-```
-
-```
-As a Professional Tour Planner
-I want to share a planned trip with a client
-So that they can view the route and its details without needing to recreate it
-
-Acceptance Criteria:
-- \[ ] A share action produces a link/token the recipient can open to view the trip read-only
-- \[ ] The recipient does not need to already have an account to view a shared trip (per Open Question #6; revisit if resolved otherwise)
-- \[ ] Revoking a share invalidates the link/token for future access
+- [ ] Route, tiles, elevation, and POI content download in advance
+- [ ] App functions with zero errors in airplane mode for a downloaded trip
+- [ ] Features that work fully offline show no offline messaging at all — they simply work
+- [ ] No feature silently fails: any limitation is passively discoverable (a quiet status indicator,
+      or an inline note at that feature's boundary, shown once) — never an interruptive modal or toast
+- [ ] A Weather Forecast shown offline is stamped with its retrieval age ("forecast as of Tue 6pm")
+      so a stale cached forecast is never mistaken for a current one
 ```
 
 ```
 As an account holder
-I want my trips to stay in sync across my desktop, mobile, and web sessions
-So that I can start planning on one device and pick it up on another without re-entering anything
-
-Acceptance Criteria:
-- \[ ] A trip edited on one signed-in device appears with the same edits on another signed-in device once both are online
-- \[ ] Each device keeps a local working copy and functions normally offline; non-conflicting edits sync automatically when connectivity returns, and any divergence between a device's copy and the server's version is handled via the version-check-on-open flow (FR32), not silently
-- \[ ] Sync applies only to the account holder's own devices, distinct from sharing a trip with another user (FR20)
-```
-
-```
-As an account holder
-I want to be notified when a trip has a newer version on the server, whether I'm opening it or about to save
+I want to be notified when a trip has a newer version on the server, at open and before save
 So that I never silently lose or overwrite my own edits made on another device
 
 Acceptance Criteria:
-- \[ ] On launch/open, the client (Desktop, Web signed-in, Android, or iOS) compares its local or last-loaded copy of a trip against the server-stored version
-- \[ ] The same comparison runs again immediately before a save is committed, catching the case where two devices opened the same version and edited in parallel — the second save is not allowed to silently overwrite the first
-- \[ ] If the server version is newer, a clear, unmissable notification tells the user an updated version is available before they can keep editing
-- \[ ] The user can choose to save their current/old trip under a distinct name, keeping both versions, or overwrite it in place with the server version
-- \[ ] No trip is silently overwritten or discarded without this explicit choice
-- \[ ] This check does not apply to unauthenticated Guest Rider sessions, which have no server-stored trip to compare against
-```
-
-```
-As any persona
-I want to set my ride's start point by searching an address, tapping the map, or using my current location
-So that I can begin planning without manually entering coordinates
-
-Acceptance Criteria:
-- \[ ] Start point can be set by geocoded location search, a map tap, or the device's current GPS position
-- \[ ] An optional destination and intermediate waypoints can be set the same way (a destination is required only for the point-to-point shape, FR35)
-- \[ ] On Mobile or desktop offline, search is served from the trip's bundled extract for in-bounds locations; an out-of-bounds search states plainly that it needs connectivity, inline, once (§4.4)
-```
-
-```
-As a Day Tripper
-I want to choose whether my ride is a loop, an out-and-back, or point-to-point
-So that the route matches how I want to start and finish, independent of which theme I pick
-
-Acceptance Criteria:
-- \[ ] Route shape (loop / out-and-back / point-to-point) is selectable independently of the five themes — any theme works in any shape
-- \[ ] Loop is the default and lowest-friction choice, per §6
-- \[ ] Point-to-point requires a destination (FR34); loop and out-and-back need only a start point
-```
-
-```
-As a Professional Tour Planner
-I want a library of my saved trips I can search, rename, duplicate, and delete, and where I can manage who I've shared with
-So that many client trips — and the extra copies created when I keep both versions of a conflict — don't become an unmanageable pile
-
-Acceptance Criteria:
-- \[ ] Saved trips are listed in a browsable, searchable library that syncs across the account's signed-in devices
-- \[ ] A trip can be renamed, duplicated, and deleted from the library
-- \[ ] Active shares (FR20) are visible per trip and can be revoked from here
-- \[ ] The distinct-name copies produced by the version-check flow (FR32) appear here as ordinary trips
-```
-
-```
-As a Guest Rider who decides to sign up
-I want the route I've been building as a guest to come with me into my new account
-So that signing in doesn't throw away the work that convinced me to sign in
-
-Acceptance Criteria:
-- \[ ] On the first sign-in or account creation from a browser holding guest work-in-progress, the app offers to import that browser-local trip into the account
-- \[ ] The import is an explicit choice; the guest work is never silently discarded, nor silently uploaded without consent
-- \[ ] After a successful import, the trip behaves as a normal synced account trip (FR21) and appears in the trip library (FR36)
+- [ ] On open, the client compares its local copy against the server version
+- [ ] The same check runs again immediately before a save commits — catching two devices that
+      opened the same version and edited in parallel
+- [ ] If the server is newer, an unmissable notification appears before editing continues
+- [ ] The user chooses: save current under a distinct name (keep both), or overwrite with the server version
+- [ ] No trip is silently overwritten or discarded
+- [ ] Does not apply to guest sessions, which have no server-stored trip
 ```
 
 ```
@@ -436,210 +286,188 @@ I want to generate and export a route without installing anything or signing up
 So that I can try the product, or use a route someone planned for me, with zero setup friction
 
 Acceptance Criteria:
-- \[ ] All five MVP routing themes (FR1-FR5) are usable without an account
-- \[ ] GPX/TCX/FIT export (FR9), Historical Weather, and the Weather Forecast (FR15) work without an account
-- \[ ] Streetview imagery/hyperlapse and saving a trip to an account prompt for plug-in setup rather than silently failing or being hidden
-- \[ ] In-progress work is persisted in the guest's own browser (IndexedDB for route/trip data, localStorage for small preferences), so closing the tab, refreshing, or a crash does not lose it on that same browser
-- \[ ] The UI clearly communicates the limits, never silently: same browser and device only; lost if browser data is cleared or private/incognito mode is used; no cross-device, sync, or share-back
-- \[ ] Messaging reflects this — "saved on this browser — export or sign in to keep it anywhere else" — not "export or you lose it on close"
-- \[ ] No server-side record is ever kept of a guest session — no email, no account, no personal details
+- [ ] All five themes (FR1–FR5), export (FR9), and both weather types (FR15) work with no account
+- [ ] In-progress work persists in the browser, so a refresh or closed tab doesn't lose it
+- [ ] Limits are stated plainly, never silently: same browser/device only; lost if browser data is
+      cleared or incognito is used; no cross-device, sync, or share-back
+- [ ] Messaging reflects this — "saved on this browser — export or sign in to keep it anywhere else"
+- [ ] No server-side record of a guest session is ever kept
 ```
-
-### 4.3 Functional Requirements
-
-|ID|Requirement|Priority|Notes|
-|-|-|-|-|
-|FR1|System generates a route from a start point optimized for the flattest theme (minimize elevation gain)|P0|Requires the local-first elevation pipeline (geotiff primary, OSMNx google based fallback), validated at M1|
-|FR2|System generates a route from a start point optimized for the most-climbing theme (maximize/target elevation gain)|P0|Shares the elevation pipeline used for FR1; validated at M1|
-|FR3|System generates a route from a start point optimized for the lowest-traffic theme|P0|Traffic-class threshold is a global user default with a per-route override; detour budget is likewise configurable in both miles and minutes, globally and per-route|
-|FR4|System generates a route from a start point optimized for the fewest-turns theme — minimizing navigational maneuvers (way/road changes, intersection decisions), not road curvature|P0|"Turn" defined as leaving the current OSM way/named road for a different one, or negotiating an intersection requiring a decision/maneuver — not a heading-change angle threshold. Staying on the same way as it curves counts as zero turns, however much it bends; documented alongside the scoring function (§5.1)|
-|FR5|System generates a route from a start point optimized for the most-art/history theme (OSM `tourism=\*`/`historic=\*` tags)|P0|Distinct from FR23 (P2), which layers richer curated content on top of this base theme|
-|FR6|System exposes route generation via a FastAPI endpoint with typed request/response schemas|P0||
-|FR7|Client renders a generated route on a map|P0|Desktop first|
-|FR8|User can toggle visibility of OSM tag categories as map layers (landmarks, POIs, parks, construction, etc.), configurable per-user to keep the UI to only what's relevant to them. For signed-in accounts, layer choices sync at the account level, bucketed by size class — large/fullscreen (Desktop, fullscreen Web) and compact/phone (phone-sized Web, installed Android/iOS) — so a user's choices for a given size class travel with them across every surface in that class, without forcing one global set across both classes. A windowed, non-fullscreen large-screen client follows its actual viewport and moves between classes as it's resized. First entry into a size class seeds from a class-appropriate default (never the other class's set wholesale), never empty. Guest Rider sessions remain per-browser only (FR22), with no cross-surface alignment|P0|First-iteration requirement, not deferred; size-class bucketing shares its two-bucket model with the contrast-mode system (§6, §9 item 19) so the app reads as one adaptive-to-surface idea, not two separate systems|
-|FR9|System exports a route as a valid GPX, TCX, or FIT file, user's choice of format|P0||
-|FR10|User can insert waypoints/checkpoints that the route must pass through|P1||
-|FR11|System supports multi-day trip splitting by min/max daily mileage|P1||
-|FR12|Routes can be constrained/scored by surface type (paved/gravel/off-road/single-track)|P1||
-|FR13|User can set sliding-scale weights for elevation-gain and surface-type preference, independently scoped to the whole tour, a single day, or a partial day, with day/segment weights overriding the tour default for that scope only|P1|Depends on FR11 (multi-day splitting) for day/partial-day scoping|
-|FR14|System surfaces lodging and campground locations along a route/trip, sourced from OpenStreetMap tags (e.g. `tourism=hotel`, `tourism=camp\_site`, `tourism=guest\_house`)|P1|Depends on FR11 for per-day overnight-point alignment; OSM-only for v1 — see Open Questions re: a dedicated lodging/campsite service|
-|FR15|System displays trip-dated weather via **Open-Meteo** (resolved 2026-07-13, §9 item 10): Historical Weather (historical/seasonal averages, for long-range planning) and a Weather Forecast (10-day/hourly, as the trip date nears) — both available on Desktop, Web, and Mobile alike, with no platform-based restriction between the two data types; both align to each day's planned location and date, not just the trip's start point or the current date. Cycling-relevant attributes: surface temperature, min/max temp, wind speed and direction, precipitation probability and timing, and a combined feels-like reading via Open-Meteo's `apparent_temperature` (not separately-named heat-index/wind-chill values — Open-Meteo doesn't expose those as distinct fields). Air quality is pulled from Open-Meteo's separate Air Quality API (PM2.5, PM10, O₃, NO₂, UV index, pollen). Every surface shows both Historical Weather and the Weather Forecast together, so the rider keeps the planning-time context alongside the near-term view — this also covers unauthenticated Guest Rider access (FR22), since Guest Rider is Web-only|P1|Depends on FR11 for per-day date alignment; the only remaining split is timing, not platform: Historical Weather targets M5 as shared weather work (surfaced on Desktop first, then inherited by Web at M6 and Mobile at M7 as each client ships); Weather Forecast targets M7. Open-Meteo is free for non-commercial use (CC BY 4.0, attribution required, no API key) — consistent with the free-core-app rationale in §3.6|
-|FR16|User can download a trip's map, route, and selected map content (map data, and elevation raster tiles) for offline use|P1|Non-Web targets|
-|FR17|Android and iOS builds run from the shared Flutter codebase with feature parity for offline trips|P1||
-|FR18|Web build from the shared Flutter codebase aims to come as close to Desktop planning parity as is practical for a server-backed web client — waypoints, multi-day logistics, sliding-scale weighting, lodging, and both Historical Weather and the Weather Forecast are the target feature set — not just route viewing. Gaps against Desktop are acceptable trade-offs where a server-backed, online-only surface makes full equivalence impractical, not an out-of-spec failure|P1|Extends FR7 (Desktop) and FR17 (Android/iOS) with a fourth, close-to-parity target; sequenced at M6 rather than bundled with mobile, since guest access (FR22) and cross-device sync (FR21) both depend on it existing. This is planning-*feature* parity as a direction of travel, not offline-capability parity — Web is conventionally server-backed and online-only (§4.4), a real, stated difference from the local-first installed apps, not a gap to paper over; whether Web needs any offline story at all remains open, see §9 item 18|
-|FR19|App authenticates users across mobile, desktop, and web via a unified, biometrics-first passkey flow (Face ID, Touch ID, Windows Hello). A new device is preferentially authorized via QR-code cross-device authorization (FIDO2/CTAP hybrid "use a passkey from another device"), with no email/magic-link round-trip and no personal details required; a passwordless magic link is the fallback when no already-trusted device is present, and also serves as an explicit account-recovery path. Accounts can bind multiple passkeys (e.g. phone, laptop, tablet) so losing one device isn't lockout. A device awaiting passkey binding is never blocked: it gets the same local-first/browser-local planning capability as the guest tier (route generation, layer toggles, GPX/TCX/FIT export) immediately; only account-scoped surfaces (synced trips, save-to-account, sharing-back) wait on the passkey. No password-only or SMS OTP flows at any point|P1|Enables route sharing (FR20) and cross-device sync (FR21); pending-registration capability mirrors FR22's guest browser-local persistence (§4.4) — satisfies §6's rule that login prompts appear only at a real capability boundary, never preemptively|
-|FR20|Account holder can share a trip/route with another user (e.g. tour planner → client), with the recipient able to view it without recreating it|P1|Requires FR19 accounts; the recipient does not need an account (see §9, resolved)|
-|FR21|An account holder's own trips sync across their signed-in devices (desktop, mobile, web) via a canonical per-account copy in the FastAPI/Postgres layer, reconciled with each device's local working copy when online. The same account-level sync also carries non-trip preferences — layer/view visibility bucketed by size class (FR8) and the contrast-mode override (§6, §9 item 19) — distinct from trip data but synced the same way|P1|Depends on FR19 (accounts); distinct from FR20 — same account holder's own devices, not a share to a different person; a new, explicit exception to the local-first principle (§4.4)|
-|FR22|Unauthenticated ("Guest Rider") web sessions can run all five MVP routing themes (FR1–FR5), export GPX/TCX/FIT (FR9), and view both Historical Weather and the Weather Forecast (FR15) without an account. In-progress route/trip state, layer toggles, and form inputs persist in the guest's own browser (IndexedDB for route/trip data, localStorage for small preferences) so closing the tab, refreshing, or a crash doesn't lose the work on that browser — but nothing is stored server-side: no email, no account, no personal details, and no cross-device, sync, or share-back capability. That browser-local state is lost if the user clears browser data, switches browsers/devices, or uses private/incognito mode; export (GPX/TCX/FIT) remains the durable, portable path. Streetview imagery/hyperlapse (FR27/FR28) and saving a trip to an account require logging in|P1|New persona — see §4.1; gating streetview behind login also functions as cost control for the metered Street View Static API (§7); depends on FR18 (Web client) existing. Browser-local persistence does not change the stateless-compute/anti-abuse posture — see §7|
-|FR23|System supports "building/architectural interest" themed tours using OSM tagging (e.g. historic=*, tourism=*)|P2|Builds on the OSM-tag scoring introduced by FR5|
-|FR24|System plays audio narration for POIs selected during planning|P2||
-|FR25|Users can upload images/feedback on routes, roads, intersections, and POIs, with public/private visibility|P2|Requires FR19 accounts, for authorship and public/private visibility control|
-|FR26|Full trip (route + content + user contributions) can be exported as GeoJSON with attributes|P2||
-|FR27|User can view streetview-style or other point-of-view imagery during planning|P2|Candidate plug-in based feature (proposed, undecided — see §3.5, §3.6); may share the paid Street View Static API dependency with FR28 (§3.5) — see risk in §7|
-|FR28|System can generate (or hand off to) a desktop-only Street View hyperlapse preview of a route via streetwarp-cli integration|TBD|Candidate plug-in based feature (proposed, undecided — see §3.5, §3.6); desktop-only, absent on mobile/web — that absence is explained in-product at the handoff, not left to silently vanish (§4.4/§6 quiet-clarity stance); see §3.5 — implementation and interaction intentionally undecided|
-|FR29|System suggests routes/segments based on a group's rider skill profiles|P3|Stretch|
-|FR30|System suggests routes/segments weighted toward frequently-cycled bike routes, greenways, and rail trails|TBD (plugin)|Plugin-candidate status resolved 2026-07-13 (§9 item 13); data source (OSM cycle-infrastructure tags vs. a heatmap-style service) and scoring approach remain undecided, deferred until the plugin is actually scoped|
-|FR31|System incorporates route/segment popularity data (Strava-heatmap-style signal) into route suggestions|TBD (plugin)|Plugin-candidate status resolved 2026-07-13 (§9 item 13); no OSM-native equivalent — would require a new third-party data source, in tension with the open-data/local-first bias (§4.4); deferred until the plugin is actually scoped|
-|FR32|Each signed-in client (Desktop, Web signed-in, Android, iOS) compares its local (or last-loaded) copy of a trip/route against the server-stored version at two points: on launch/open, and again immediately before committing a save. If the server version is newer at either point, the client shows a clear notification that an updated version is available, and the user chooses to either (a) save their current/old trip under a distinct name, keeping both, or (b) overwrite in place with the server version. The save-time check specifically catches the case where two devices both opened the same version, edited independently, and would otherwise silently overwrite each other at save|P1|Applies to all signed-in surfaces; does not apply to unauthenticated Guest Rider sessions (FR22), which have no server-stored trip to compare against. Replaces bare last-write-wins as the primary reconciliation UX for FR21's cross-device sync — divergence is always surfaced to the user, never silently resolved, at open and at save (see §4.4, §7, §9 item 14; UX.md §2)|
-|FR34|User sets the route's start point — and optional destination and intermediate waypoints — via location search (geocoding) for Online status, a tap on the map for offline status, or the device's current GPS location for offline status. This is the entry step before any theme routing runs|P0|Geocoding is resolved as one unified path across Desktop, Web, and Mobile alike (2026-07-13, §9 item 9): OSMnx's own built-in `geocoder.geocode()` function, called server-side from FastAPI, which is itself backed by the free, keyless Nominatim API — not a separately self-hosted Nominatim/Photon instance, and no Google dependency anywhere in the geocoding path. Subject to the responsible-use caching discipline (§4.4). Offline behavior: a start point/destination/waypoint can only be set within the bounds of the trip's currently-downloaded offline content — outside those bounds, the user is prompted to restore connectivity before it can be set (resolved 2026-07-13, §9 item 23)|
-|FR35|User selects the route shape — loop (start == end), out-and-back, or point-to-point — as an input orthogonal to the five routing themes, so any theme can be generated in any shape. Loop is the default, reflecting the persona preference in §6|P1|The MVP's "generate a route from a start location" (§3.4) implicitly defaults to a loop; explicit out-and-back / point-to-point selection is the P1 addition. Point-to-point requires a destination from FR34|
-|FR36|A trip library lets a signed-in user list, search, rename, duplicate, and delete their saved trips, and view and revoke active shares (FR20). This is where the distinct-name copies produced by the version-check flow (FR32) and a Professional Tour Planner's many client trips are managed|P1|Depends on FR19 accounts and FR21 sync; the trip list itself syncs per account. Guests have at most their single browser-local WIP (FR22) and no library|
-|FR37|On the first sign-in (or account creation) from a browser that holds unsynced guest work-in-progress (FR22), the app offers to import that browser-local trip into the account rather than discarding it or leaving it orphaned in the guest store|P1|Closes the guest→account conversion path; the import is an explicit user choice, consistent with never silently moving or losing a user's work. Depends on FR19 (accounts) and FR22 (guest browser-local persistence)|
-|FR38|On first start with no local map/elevation data present, the user is offered exactly three choices — North Carolina, Wisconsin, or Southern California (Los Angeles-centered) — and the selected region is downloaded directly from the OpenTopography API to the device, with no Render intermediary|P0|Explicitly a disposable MVP stopgap (§9 item 2), not the target cold-start architecture — it only works because MVP has few enough users to stay under OpenTopography's 50-calls/24h non-academic rate limit per device. Superseded post-MVP by a packaged North Carolina bundle (default start: Marion, NC) plus the shared Render-hosted elevation/tile cache (§9 items 2, 4). Small and self-contained; does not affect M1–M4 sequencing|
-|FR39|On Desktop and Mobile, user can view and delete downloaded map/elevation content that isn't needed for a current or upcoming trip, to reclaim device storage|P1|Grows in importance as downloaded regions (FR38, and later the packaged NC bundle) accumulate; not applicable to Web, which holds no local map/elevation content by design (§4.4)|
-|FR40|Account holder maintains a rider profile: height, weight, FTP, average speed, name, home location, dietary preference, lodging preference, surface preference, climbing preference, per-day distance preference, emergency contact name, emergency contact phone. Riding-preference fields (surface, climbing, per-day distance) act as the rider's *default* — FR12 (surface filtering) and FR13 (sliding-scale weighting) already let these be overridden per trip, day, or partial-day segment, so the profile seeds a starting point rather than introducing a second, competing preference system|P2|Resolved as a core feature, not a plugin (2026-07-13) — account-scoped data every persona needs, not an alternative implementation of a shared capability (contrast with §3.7's plugin categories). Depends on FR19 (accounts); Guest Rider has no profile, consistent with FR22's no-account/no-storage model. Directly serves the Professional Tour Planner persona's stated want to maintain client rider profiles (§4.1)|
-|FR41|Rider profile visibility is restricted by default to the rider (the data's owner/creator). When a rider grants a Professional Tour Planner access, the UI presents per-field selection controls (checkboxes) so the rider chooses exactly which profile fields that planner can see — access is opt-in per field, defaulting to the least-shared state (nothing visible until explicitly checked), never a shared-everything default a rider has to opt out of. This is a distinct, explicit grant, not an automatic side effect of being connected via a shared trip (FR20) or sync (FR21)|P2|Resolved 2026-07-13 (§9 item 22) — field-level, opt-in, least-shared-by-default. Depends on FR40 and FR19/FR20 (accounts, sharing)|
 
 ### 4.4 Non-Functional Requirements
 
-* **Local-first (Desktop and Mobile)**: Core routing must run without a network connection to any remote service on Desktop and Mobile; OSMnx works against locally-cached OSM extracts, and elevation enrichment reads from local GeoTiff tiles bundled with each trip's bounding box rather than depending on a live network call for the common case. Two explicit exceptions exist on these targets, each scoped as narrowly as possible: (1) trip-dated weather (FR15) — Historical Weather (historical/seasonal norms) can be bundled/cached like elevation data, but the Weather Forecast (10-day/hourly) inherently requires network access when available, degrading gracefully to its own last-cached Weather Forecast data offline rather than falling back to Historical Weather (see Offline mobile, below); (2) account-holder cross-device sync (FR21) — each signed-in device keeps a local working copy and functions normally offline; when back online, divergence between that copy and the canonical per-account copy in FastAPI/Postgres is surfaced to the user via the version-check-on-open flow (FR32) rather than reconciled silently. The same sync also carries non-trip account preferences — layer/view visibility bucketed by size class (FR8) and the contrast-mode override (§6, §9 item 19) — alongside trip data
-* **Web is conventionally server-backed, not local-first** (revised 2026-07-10 — see `ARCHITECTURE.md` §2 Principle 1/6): no browser runs the OSMnx routing core offline without a WASM port that isn't in scope, so Web depends on the hosted FastAPI/Postgres service for all compute, both signed-in and guest. Signed-in Web sessions use a conventional server-side session (cookie + revocable Postgres row), not a local working copy. Unauthenticated guest sessions (FR22) still call FastAPI statelessly for compute and store nothing server-side — no email, no account, no personal details — but do persist in-progress work (route/trip state, layer toggles, form inputs) in the guest's own browser via IndexedDB/localStorage, so a refresh or closed tab doesn't lose it. This is an intentional reversal of the original "thin client, no local persistence" characterization: that was a design assumption, not part of the privacy guarantee, which was always specifically about server-side storage. Browser-local data is same-browser/same-device only, is lost if the user clears browser data or uses private/incognito mode, and never syncs, shares back, or crosses devices — those remain account-gated (FR19/FR21). Whether Web should ever offer offline capability for signed-in users (e.g. service-worker/PWA caching of their own trips) remains a separate open question — see §9 item 18
-* **Offline mobile**: Offline is a common, expected state, not an error condition — downloaded trip content must be fully usable with zero errors with no connectivity, and features that work fully offline show no offline messaging at all. A persistent, unobtrusive status indicator communicates connectivity passively; when a specific feature needs connectivity (e.g. the live Weather Forecast, sync, sign-in), that's surfaced inline at that feature's boundary, once — never as a repeating, interruptive, or modal alert. No feature silently fails: any limitation is always passively discoverable, never actively interrupted for. A Weather Forecast displayed while offline is always shown with its retrieval time/age, so a stale cached forecast (older than its short online TTL, per the responsible-use NFR below) reads as visibly old rather than being presented as current — the one case where the app must show data it knows may be stale, made honest by stamping its age
-* **Power efficiency**: Mobile client should minimize GPS/CPU/network wake-ups during long rides — this is an explicit design constraint, not an afterthought
-* **Security**: Biometrics-first passkey auth (Face ID/Touch ID/Windows Hello) unified across mobile and desktop. New-device authorization prefers the standard FIDO2/CTAP hybrid QR flow ("use a passkey from another device") over an already-registered, trusted device — no email/magic-link round-trip, no personal details required. A passwordless magic link is the fallback for new-device registration when no trusted device is present, and is also promoted to an explicit account-recovery path, not registration-only. Accounts can bind multiple passkeys (e.g. phone, laptop, tablet), so losing one device is not lockout. On platforms where the passkey plugin proves too immature (see §7), the client falls back to a magic-link-authenticated session rather than blocking the user. No password-as-sole-factor or SMS OTP is to be implemented at any point, under any of these paths
-* **Portability**: One Flutter codebase targets Android, iOS, Desktop, and Web — avoid platform-specific forks except where unavoidable
-* **Open data / open source bias**: Prefer high-social-worth open source libraries and open datasets (OSM) over proprietary services where a viable option exists
-* **Responsible use of shared/external open resources**: Any data fetched from a shared or external open resource — self-hosted/generated map tiles (§5.2, §5.3), GEDTM30 elevation raster tiles via the OpenTopography API (§5.1, §9 item 2), the Open-Meteo weather service (FR15, §9 item 10), and the geocoding service (FR34) — is cached (server-side and/or client-side, as applicable) with a reasonable expiry/TTL, a bounded cache size with eviction, and no bulk-hammering or repeat requests for data already held. This matters concretely for OpenTopography: the free non-academic API key is rate-limited to 50 calls/24 hours, so re-fetching a tile any user has already downloaded isn't just impolite, it risks exhausting the key. The post-MVP model formalizes this as "cache once, serve to everyone" via the shared Render-hosted tile cache (§9 items 2 and 4), rather than each device independently re-requesting the same coordinates. Cache TTLs must fit each data type's actual volatility, not a single blanket duration: the Weather Forecast (10-day/hourly) changes frequently and must use a short TTL, never cached for a long period — a stale forecast is worse than none; tiles and elevation data change slowly and can use long TTLs; Historical Weather norms are effectively static and can be cached long or bundled outright, like elevation. If tiles are ever sourced as *rendered* images from a public third-party endpoint rather than generated from raw OSM data, this caching discipline becomes mandatory to respect that endpoint's usage policy, not merely a politeness norm. GEDTM30 is CC BY-licensed and Open-Meteo's data is CC BY 4.0 — both require attribution wherever the data is used, tracked as a compliance item, not just a caching courtesy
+**Local-first (Desktop and Mobile)**
+Core routing runs with no network connection. OSMnx works against locally-cached OSM extracts; elevation reads from local GEDTM30 GeoTIFF tiles bundled per trip bounding box. Two narrow exceptions:
+1. **Weather Forecast** (FR15) inherently needs network when available; it degrades to its own last-cached forecast (age-stamped), never falling back to Historical Weather as a substitute.
+2. **Cross-device sync** (FR21) — each device keeps a local working copy and works offline; divergence surfaces through FR32's version check, never silent reconciliation.
 
-\---
+**Web is server-backed, not local-first**
+See §3.2. Signed-in Web uses a conventional cookie + revocable Postgres session row. Guest sessions call FastAPI statelessly and store nothing server-side.
 
-## 5\. Technology Requirements (Learning Objectives)
+**Offline is expected, not an error**
+Downloaded trip content is fully usable with zero errors and zero connectivity. Features that work offline show no offline messaging at all. A persistent, unobtrusive status indicator communicates connectivity passively. When a feature genuinely needs connectivity, that surfaces inline at that feature, once — never as a repeating, interruptive, or modal alert. No feature silently fails.
 
-This section is first-class, not an implementation appendix, because the technology stack is a project goal, not just a means to an end.
+**Responsible use of shared external resources**
+Every external dependency — map tiles, GEDTM30 elevation (OpenTopography), weather (Open-Meteo), geocoding (Nominatim via OSMnx) — is cached with a TTL appropriate to *that data's actual volatility*, a bounded cache size with eviction, and no repeat requests for data already held:
+
+| Data | TTL | Notes |
+|-|-|-|
+| Weather Forecast | Short | A stale forecast is worse than none |
+| Historical Weather | Long / bundled | Effectively static |
+| Map tiles | Long | Changes slowly |
+| Elevation tiles | Long | Changes slowly |
+
+This is not merely politeness. OpenTopography's free non-academic key is limited to **50 calls/24 hours** — re-fetching a tile someone already downloaded risks exhausting it. The post-MVP shared cache (§5.2) formalizes "fetch once, serve everyone."
+
+**Attribution is a compliance item, not a courtesy**: GEDTM30 is CC BY; Open-Meteo is CC BY 4.0. Both require attribution wherever the data appears.
+
+**Power efficiency**
+The Mobile client minimizes GPS/CPU/network wake-ups during long rides. Acceptance criterion: the app runs without errors or crashes while the device's OS-level power-saving mode is active.
+
+**Security**
+Passkey-first, per FR19. No password-as-sole-factor and no SMS OTP at any point. Where a platform's passkey plugin proves too immature, fall back to a magic-link session rather than blocking the user.
+
+**Portability**
+One Flutter codebase, four targets. Avoid platform-specific forks except where unavoidable.
+
+**Open data / open source bias**
+Prefer high-social-worth open-source libraries and open datasets (OSM, GEDTM30, Open-Meteo, Nominatim) over proprietary services wherever a viable option exists.
+
+---
+
+## 5. Technology Requirements (Learning Objectives)
+
+The stack is a project goal, not an implementation detail. This section is first-class.
 
 ### 5.1 Routing Core — Python + OSMnx
 
-* **Learning goal**: Understand OSMnx graph construction (`graph\_from\_place`/`graph\_from\_bbox`), custom edge weighting functions, and shortest-path variants (Dijkstra/A\*) applied to real-world constraints (elevation, surface, traffic-class tags)
-* **Requirement**: Local caching uses OSMnx's own graph caching (`graph\_from\_place`/`graph\_from\_bbox` with `ox.settings.use\_cache` + `save\_graphml`/`load\_graphml`), not a separately managed `.osm.pbf` extract pipeline — keeps the routing core to one tool for both fetch and cache
-* **Requirement**: At least one custom multi-factor scoring function per theme (FR1–FR5) must be implemented and documented — this is the core "why OSMnx" exercise
-* **Requirement**: The fewest-turns theme's (FR4) turn-count signal scores by navigational maneuvers, not road curvature — a transition between distinct OSM ways/named roads, or an intersection requiring a decision/maneuver, counts as a turn; staying on the same way as it curves, however much the road bends, counts as zero. This is deliberately distinct from a heading-change-angle metric, which would score a single curvy road as many turns and miss that a neighborhood-grid route with a turn every block is the actually complex one, even where each individual block segment is straight
-* **Requirement** (revised 2026-07-13 — see §9 item 2): Elevation-aware routing is in scope for v1 using **GEDTM30** (a 30m global ensemble digital terrain model that already fuses Copernicus DEM, ALOS World 3D, and ICESat-2/GEDI ground points into one dataset) accessed via the OpenTopography Global DEM API, replacing the earlier SRTM-primary/open-elevation.com-fallback approach — GEDTM30 needs no separate fallback service since it's already a single best-available source. Raster GeoTIFF tiles are fetched per trip bounding box, bundled/cached locally the same way SRTM tiles were, and read via `rasterio`. A local data void or a failed fetch still falls back to a flat-earth assumption (0.0m elevation change) for that coordinate rather than stalling or erroring — that safety net is unchanged. Sourcing path differs by phase: for MVP, each device calls the OpenTopography API directly under its own free-tier key (FR38 — a disposable stopgap, not the target architecture); post-MVP, a shared Render-hosted cache serves any previously-downloaded tile to every subsequent requester rather than each device hitting OpenTopography independently (§9 item 4). Required starting at M1 via the direct-call path, since two of the five P0 MVP themes (FR1, flattest; FR2, most climbing) depend on it directly. GEDTM30 is CC BY-licensed — attribution is required wherever elevation data is used or displayed
-* **Requirement**: Elevation-gain and surface weighting functions (FR13) must accept weights that vary by position along the route (tour-wide default, overridden per day or per partial-day segment), not just a single global scalar — this is a meaningfully harder version of the FR1–FR5 custom-weighting exercise
-* **Requirement** (new 2026-07-13): On Desktop and Mobile (local-first OSMnx only — this does not apply to the Web/Render server-side OSMnx instance, whose core allocation is a separate, fixed setting tied to the hosted instance size), the client reads the device's available core count via Dart's `Platform.numberOfProcessors` and passes `floor(coreCount / 2)` to OSMnx as its processing core limit, so route computation doesn't starve the rest of the device (UI thread, background OS tasks) of CPU during graph construction and scoring
+**Learning goal**: OSMnx graph construction (`graph_from_place`/`graph_from_bbox`), custom edge weighting functions, and shortest-path variants (Dijkstra/A*) applied to real-world constraints.
 
-### 5.2 Middle Layer — FastAPI
+**Requirements**:
+- Graph caching uses OSMnx's own mechanism (`ox.settings.use_cache` + `save_graphml`/`load_graphml`), not a separately managed `.osm.pbf` extract pipeline — one tool for both fetch and cache
+- At least one custom multi-factor scoring function per theme (FR1–FR5), implemented and documented — this is the core "why OSMnx" exercise
+- FR4's turn signal scores navigational maneuvers, not curvature (see FR4)
+- FR13's weighting functions accept weights that **vary by position along the route** (tour default, overridden per day or partial-day segment), not a single global scalar — a meaningfully harder version of the FR1–FR5 exercise
+- **Core allocation (Desktop/Mobile only)**: the client reads `Platform.numberOfProcessors` (Dart) and passes `floor(coreCount / 2)` to OSMnx as its processing core limit, so route computation doesn't starve the UI thread and OS tasks. This does not apply to the server-side OSMnx instance, whose allocation is a fixed setting tied to the Render instance size
 
-* **Learning goal**: Typed request/response models with Pydantic, dependency injection, async endpoint design, and OpenAPI schema generation as a byproduct of the code (not hand-written docs)
-* **Requirement**: Route generation, trip CRUD, and export endpoints are all exposed through FastAPI with auto-generated OpenAPI docs
-* **Requirement**: Long-running route computations (large multi-day trips) should demonstrate FastAPI's async/background-task patterns rather than blocking request handling
-* **Requirement**: Auth/account endpoints (passkey registration \& verification per WebAuthn — including binding multiple passkeys per account — QR-code cross-device authorization per the FIDO2/CTAP hybrid transport, magic-link issuance/consumption for both new-device registration and account recovery, share-link/token issuance for FR20) live in FastAPI, alongside two related but distinct server-side responsibilities: account-holder cross-device trip sync (FR21) and stateless live compute for unauthenticated guest sessions (FR22) — together these are the parts of the system that are not local-only; see §4.4 for how each stays scoped as narrowly as possible
-* **Requirement**: The FastAPI service, its Postgres database, and the Flutter Web static build are hosted on Render (a Starter web service, a Starter Postgres instance, and a free static site) — chosen for always-on behavior, since OSMnx keeps compiled graphs cached in memory and a cold start would hit a guest's first request hardest, and for fixed, predictable cost under anonymous guest traffic rather than usage-based billing
-* **Requirement**: For Web, FastAPI runs the same tile-generation pipeline server-side for a requested trip's bounding box (§5.1/§5.3), caches the rendered tile set, and serves it to the browser — an on-demand, bbox-scoped, cached service, not a third-party rendered-tile endpoint and not a standing global tile server (§7's "no standing tile server" scope rules out the latter, not this). This adds a deliberate, in-character server-side responsibility to the already-server-backed Web surface — a mild, acknowledged tension with keeping the hosted service narrowly scoped (§7), justified because Web has no local generation path of its own. The same cache can serve as the origin for Desktop/Mobile's per-trip offline tile bundle, so there's one tile-generation pipeline, not two
-* **Requirement** (new 2026-07-13, realigned into this milestone — see §9 items 2 and 4): The same Render-hosted cache-once-serve-many model extends to GEDTM30 elevation raster tiles fetched from OpenTopography — once any user's device downloads a tile for a given area, it's cached server-side and served to every subsequent request for that area, keeping aggregate OpenTopography API usage well within the free non-academic key's 50-calls/24h limit regardless of total user count. This is a distinct cache from the basemap-tile cache above but follows the identical bbox-scoped, on-demand, non-standing-server pattern. This is also the mechanism behind the post-MVP packaged-content phase: the app ships with North Carolina pre-bundled and Marion, NC as the default start, so a user with no downloaded content still opens to something populated, without every user needing to individually exhaust OpenTopography calls the way the MVP-throwaway flow (FR38) does
-* **Requirement** (resolved 2026-07-13, one unified path across Desktop, Web, and Mobile — §9 item 9): Location search is backed by OSMnx's own built-in `geocoder.geocode()` function, called server-side from FastAPI — this is OSMnx's existing wrapper around the Nominatim API's "search"/"lookup" endpoints, free and keyless, not a separately self-hosted Nominatim/Photon instance and not a Google-backed service. Results are cached under the responsible-use discipline (§4.4). This is one of four external/shared dependencies (alongside tiles, elevation, and weather) and the entry point to every routing flow (FR34)
-* **Stretch learning goal**: WebSocket or SSE endpoint for streaming route-generation progress to the client
+### 5.2 Elevation — GEDTM30 via OpenTopography
 
-### 5.3 Client — Flutter/Dart (Android, iOS, Desktop, Web)
+**GEDTM30** is a 30m global ensemble digital terrain model already fusing Copernicus DEM, ALOS World 3D, and ICESat-2/GEDI ground points. Because it is a single best-available source, it needs **no fallback elevation service**.
 
-* **Learning goal**: A single Dart codebase producing four build targets, with a real understanding of where platform-specific code is unavoidable (e.g. background location, offline storage, map rendering backend differences)
-* **Requirement**: Map rendering via `flutter\_map` over self-hosted tiles (generated from raw OSM extracts via the same tile-generation pipeline everywhere, not pulled from a third-party rendered-tile endpoint) rather than a proprietary maps SDK, consistent with the open-source bias in §4.4 and the offline-bundling need in FR16. Desktop and Mobile generate tiles locally, per-trip bounding box. Web has no local generation path — no browser runs the tile-generation pipeline — so it fetches tiles from the Render-hosted FastAPI backend, which runs the same generation pipeline server-side for the requested trip bounding box, caches the result, and serves it to the browser (§5.2): an on-demand, bbox-scoped, cached service, not a third-party endpoint and not a standing global tile server. This same server-side cache can also act as the origin Desktop/Mobile fetch their per-trip tile bundle from before going offline, unifying the pipeline across all four targets rather than running two independent tile-generation code paths. The tile-generation step is required starting at M3 (Desktop client) — see §8
-* **Requirement**: Local persistence layer (e.g. `sqlite`/`drift` or similar) for offline trip storage — this is core to FR16/FR17, not optional polish
-* **Requirement**: Biometric passkey integration (platform authenticator via WebAuthn/`passkeys` plugin) on both mobile (Face ID/Touch ID) and desktop (Windows Hello) targets, with a shared auth flow rather than per-platform bespoke logic — this is the hardest cross-platform-parity test in the app (FR19). Includes the FIDO2/CTAP hybrid ("use a passkey from another device") QR flow for cross-device authorization, and support for binding/managing multiple passkeys per account. A device pending passkey binding must not block the client shell — it drops into the same local-first/browser-local planning capability the guest tier uses (FR22) until the passkey completes or the account-recovery magic link is used
-* **Requirement**: Desktop and Web targets are explicitly part of the learning scope, not just "if we get to it." Web goes beyond original route-viewing parity: it's a full planning client for signed-in account holders, including cross-device sync (FR21), and it also supports a distinct unauthenticated guest mode (FR22) that calls FastAPI directly for stateless compute (no server-side storage) while persisting in-progress work in browser-local storage (IndexedDB/localStorage) rather than the `drift`/SQLite store the other, signed-in targets use — a reversal of the original "no local persistence" guest-mode characterization, since the privacy guarantee was always about server-side storage, not the browser. Web is sequenced at M6, ahead of the Android/iOS build at M7, since sync and the guest tier both depend on it — see §8
-* **Requirement**: Map layer visibility (FR8) is implemented as user-toggleable `flutter\_map` layers keyed to OSM tag categories (not a fixed, hardcoded layer set). For signed-in accounts, choices sync at the account level via FastAPI/Postgres (alongside FR21 trip sync and the contrast-mode override, §6/§9 item 19), bucketed into two size classes shared with the contrast-mode system — large/fullscreen (Desktop, fullscreen Web) and compact/phone (phone-sized Web, installed Android/iOS) — so a user's per-class choices travel across every surface in that class, without forcing identical config across both classes. A windowed, non-fullscreen large-screen client tracks its actual viewport and moves between classes as it's resized — intentional, not a reset: each class independently remembers its own set. First entry into a size class an account hasn't used before seeds from a class-appropriate default — never the other class's set inherited wholesale, so a dense large/fullscreen configuration does not flood a compact/phone surface on first open — never an empty view. Guest Rider sessions keep this per-browser only (FR22), with no account-level sync or cross-surface alignment
+- Raster GeoTIFF tiles fetched per trip bounding box, cached locally, read via `rasterio`
+- A data void or failed fetch falls back to a flat-earth assumption (0.0m change) for that coordinate — never stalls, never errors
+- CC BY licensed — **attribution required**
 
-* **Requirement** (new 2026-07-13, proposed/undecided — see §3.7): Output/integration plugins (Garmin, Wahoo, Coros, indoor ride simulators) are Flutter-side plugin packages, each holding its own OAuth token and calling that platform's API directly from the device — not proxied through FastAPI. Tokens are stored via platform-appropriate secure storage (Keychain/Keystore-backed, e.g. `flutter_secure_storage`), never in the same local persistence layer as trip data. Proposed direction only; not yet a committed FR
+**Two sourcing phases**:
 
-### 5.4 Explicit Non-Goals for the Learning Scope
-
-* No native iOS/Android modules beyond what Flutter plugins already provide, unless a specific capability (e.g. background GPS) forces it
-* No infrastructure/DevOps learning track (no Kubernetes, no cloud deploy) — local-first keeps the ops surface intentionally small
-
-\---
-
-## 6\. Design \& UX Principles
-
-* Goal-driven planning is the primary interaction, not a filter bolted onto a generic map — theme selection (flattest, most art, lowest traffic, etc.) should be a first-run decision, not buried in settings
-* Loops > point-to-point > out-and-back, reflecting the Weekend Cyclist persona's stated preference — the UI should make loop creation the path of least resistance. Route shape is chosen independently of the routing theme (FR35): any theme can be a loop, out-and-back, or point-to-point, with loop pre-selected
-* Setting the ride's start (and, for point-to-point, destination) is the first action in every flow (FR34) and should be frictionless — search, map tap, or current location — not a coordinate-entry chore
-* A user's work is never silently lost or discarded at a boundary — signing in offers to bring guest work into the account (FR37), a version conflict lets the user keep both copies (FR32), and saved trips live in one manageable library (FR36) rather than accumulating invisibly
-* Surface type and traffic level are always visible on a route, not hidden behind a details screen
-* Offline is the expected, first-class state, not degraded UX — a persistent, unobtrusive status indicator (e.g. a quiet, glanceable badge) keeps connectivity passively clear at all times, so a user is never unsure whether a screen will work without signal, without resorting to prompts, toasts, or modals. Features that work fully offline carry no offline messaging at all; a feature that actually needs connectivity (live Weather Forecast, sync, sign-in) surfaces that need inline, at that feature, once — never as a recurring or interruptive alert
-* Map content (OSM tags/layers) is opt-in and user-configurable — the default view should not force every rider through menus for POI categories (e.g. construction) that are irrelevant to them
-* Guest/unauthenticated use is first-class for what it supports, not a crippled trial — login prompts appear only at an actual capability boundary (saving a trip, viewing streetview imagery — the latter a candidate plug-in based boundary too, if that proposed tier is ever adopted), never preemptively before that point
-* Guest work-in-progress is saved automatically in the guest's own browser, not discarded on tab close — messaging reflects this ("saved on this browser — export or sign in to keep it anywhere else"), not the old "export or you lose it" framing. Login prompts still appear only at a real capability boundary (saving to an account, cross-device access, streetview), never preemptively
-* Cross-platform "parity" (Desktop, Web, Android, iOS) is a direction of travel, not a pass/fail bar — each surface aims to come as close to the others' feature set as is practical, and gaps are deliberate, acceptable trade-offs where a surface's constraints make full equivalence impractical, not spec failures. Where a real behavioral difference exists (e.g. Web is online-only and server-backed while the installed apps work offline), that difference is stated plainly rather than papered over with a parity claim
-* Indoor and Outdoor contrast are one adaptive system, not a manual toggle — the app senses context (device type, viewport, and where practical, ambient light or the OS's light/dark setting) and defaults intelligently: Mobile always defaults to Outdoor Contrast, Desktop/Web default to Indoor Contrast. A manual switch exists only as an override for when that automatic read is wrong (e.g. planning from a laptop at a sun-exposed trailhead), not as the primary interaction — the same visual identity, dressed for the conditions, not an unexplained jump between two apps. An explicit override is a synced, account-level preference that travels with the signed-in user across devices; the automatic default still evaluates fresh per surface, independent of any saved override
-
-\---
-
-## 7\. Risks \& Mitigations
-
-|Risk|Probability|Impact|Mitigation|
-|-|-|-|-|
-|OSMnx multi-factor weighting across all five MVP themes is harder than expected (elevation/POI/surface data sparse or inconsistent in OSM)|High|Medium|Build and validate the local-first elevation pipeline (GEDTM30 via OpenTopography) and POI-tag scoring for the most-art theme within M1, before the API/client layers depend on them; surface-type weighting (FR12) remains a separate P1 item beyond the five M1 themes|
-|Chasing full four-target parity (Desktop, Web, Android, iOS) balloons scope, when parity was only ever meant as "as close as practical" guidance, not a contractual requirement|High|Medium|Treat parity as a direction of travel, not a pass/fail bar — trade off gaps deliberately where a target's constraints make full equivalence impractical (e.g. Web's online-only, server-backed nature vs. the installed apps' offline capability) rather than chasing 1:1 feature-for-feature matching; sequence targets — Desktop first (fastest iteration), then Web (concurrent with M6's accounts/sync work, since cross-device sync and the guest tier both depend on it), then Android/iOS|
-|Local OSM extract size/performance on mobile devices|Medium|Medium|Scope offline downloads to a bounding box per trip, not full regional extracts|
-|Solo project with no deadline pressure risks stalling|Medium|Medium|Anchor scope to the MVP in §3.4, which is deliberately small and demo-able|
-|Biometric passkey support (Face ID/Touch ID/Windows Hello) via Flutter has uneven plugin maturity across Desktop vs. mobile|Medium|High|Spike passkey auth early (before M5) rather than at the end; on any platform where passkey support proves too immature, fall back to a magic-link-authenticated session rather than blocking the user — the same magic-link path that already serves as the new-device fallback and explicit account-recovery lane. Multi-passkey binding and QR cross-device authorization (FIDO2/CTAP hybrid) also reduce how often any single platform's passkey immaturity is even on the critical path, without blocking sharing|
-|OpenTopography's GEDTM30 API becomes a bottleneck, goes down, or the MVP direct-call flow (FR38) exhausts the free non-academic key's 50-calls/24h rate limit as user count grows even modestly|Medium (rises with MVP user count)|Medium|MVP explicitly accepts this as a throwaway limitation (§9 item 2) — FR38 is scoped to a handful of users by design, not meant to scale. Post-MVP, the shared Render-hosted cache (§5.2, §9 items 2/4) serves any previously-downloaded tile to every subsequent requester, so aggregate OpenTopography calls stay low regardless of total user count. GEDTM30's CC BY attribution requirement is tracked as a compliance item alongside this, not just a caching courtesy|
-|Coordinate-to-tile file management and local data voids/missing GEDTM30 tiles within the Python routing core|Medium|Medium|Fall back to a flat-earth assumption (0.0m elevation change) for that coordinate so the routing engine never stalls or crashes the UI — GEDTM30 has no secondary network fallback the way the old SRTM/open-elevation.com pipeline did, since it's already a single best-available source|
-|Self-hosted tile pipeline (generating/serving offline map tiles from local extracts) adds real tooling overhead beyond app code, and Web has no local generation path at all — now extended to elevation raster tiles as well as basemap tiles|Medium|Medium|Scope to per-trip bounding-box tile generation, not a standing tile server: Desktop/Mobile generate locally; Web fetches from a Render-hosted, on-demand, bbox-scoped server-side cache running the same pipeline (§5.2, §5.3) — a bounded per-area cache, not the global always-on world tile service the "no standing tile server" scope actually rules out. Acknowledge the mild tension this adds to keeping the hosted service narrowly scoped (§4.4) — a deliberate, in-character exception, not scope creep left unexamined. Elevation tiles get their own distinct cache under the same pattern, not folded into the basemap-tile cache|
-|Packaging North Carolina map/elevation content directly into the app binary (post-MVP cold-start phase) grows install size, potentially discouraging first installs|Medium|Low|Accepted as a known, deliberate trade-off (§9 item 2) in exchange for a populated, working app on first open with zero downloads required. Mitigated somewhat by FR39 (local data pruning), which at least lets a user reclaim space from *other* regions after the bundled NC content is no longer needed; doesn't shrink the binary itself, but bounds ongoing storage growth|
-|Output/integration plugins (§3.7) hold third-party OAuth tokens (Garmin, Wahoo, Coros) client-side, on the device — a credential-storage surface the app hasn't had before, and each platform's API/auth flow drifts independently over time, adding N ongoing maintenance relationships instead of one|Medium (rises with number of integrations shipped)|Medium/High|Tokens go through platform-appropriate secure storage (Keychain/Keystore via `flutter_secure_storage`), never the general local persistence layer used for trip data (§5.3). Scope to a small, deliberately curated integration list rather than an open plugin marketplace at first, so drift is bounded and reviewable — consistent with treating this as proposed/undecided (§3.7) rather than committed scope yet|
-|Rider profile (FR40) introduces a new class of sensitive personal data (emergency contact, home location) the app hasn't stored before|Medium|Medium|FR41's field-level, opt-in, least-shared-by-default sharing model (§9 item 22) is the concrete mitigation — a rider never has sensitive fields exposed to a planner without explicitly checking that specific field|
-|Desktop/Mobile's hosted-service touchpoints (auth/share-brokering, cross-device sync — FR19–FR21) could drift into a general multi-tenant backend if not kept narrow. (Web's use of the hosted service is deliberately *not* scoped this way as of 2026-07-10 — see below and `ARCHITECTURE.md` §2 Principle 1/6 — this row now applies only to what Desktop/Mobile touch)|Medium|Medium|Scope each Desktop/Mobile-facing exception explicitly and separately rather than merging them into one general-purpose service: auth + share-token brokering only for FR20; per-account sync of that account's own trips only for FR21; stateless compute with no storage for FR22 (guest tier, all platforms) — see §4.4|
-|Web's signed-in session uses a conventional server-side session (cookie + Postgres row) rather than avoiding server storage. Resolved 2026-07-13 (§9 item 20) as a cross-site cookie (`SameSite=None; Secure`) with full CORS credentialed-request configuration, since the Flutter Web static build and the hosted API are separate Render origins — a misconfiguration here (e.g. an overly permissive origin allowlist to make cookies "just work") is a real vulnerability class this design didn't previously have to think about|Medium|Medium|Origin strategy is now decided, not still open — implement with an explicit origin allowlist, never a wildcard, and confirm `Access-Control-Allow-Credentials` is paired with a specific origin, not `*`, before M6's Web auth work ships. See `ARCHITECTURE.md` §11.T|
-|Segment-varying elevation/surface weighting (FR13) turns route scoring into a per-position function instead of a single scalar, adding real algorithmic complexity|Medium|Medium|Build the single-scalar versions (FR1–FR5) first; treat day/partial-day overrides as an explicit follow-on iteration on the same scoring functions, not a rewrite|
-|Unauthenticated guest-tier compute (FR22) is reachable by anonymous traffic, creating a cost/abuse surface the routing core and weather proxy didn't have before|Medium|Medium|Rate-limit guest-tier endpoints (e.g. per-IP throttling) before launch; keep guest sessions fully stateless server-side so abuse can't accumulate persistent server-side cost beyond the compute itself. Guest work-in-progress persisted client-side in the guest's own browser (see FR22, §4.4) doesn't change this posture — it's local to the guest's device and never touches the server, so it adds no new storage/abuse surface|
-|Cross-device sync (FR21) introduces conflict resolution the app never needed while trips were purely local-first (e.g. the same trip edited offline on two devices before either reconnects)|Medium|Medium|Resolve via the explicit version-check flow (FR32), run both on open and immediately before save: compare the local/last-loaded copy against the server version and, if newer, let the user save-as (keep both) or overwrite — no silent whole-trip last-write-wins. The on-save check closes the gap where two devices open the same version and edit in parallel (an open-only check would miss this and silently lose the second save); revisit per-field merge only if the whole-trip choice proves inadequate, avoiding a general merge/CRDT system speculatively|
-|streetwarp-cli phase (§3.5, FR28) depends on external, possibly-paid Google Street View Static API and `ffmpeg`, dependencies unlike anything else in the stack|Low (it's last)|Low|Left fully TBD by design; revisit feasibility/cost only once it's actually next in line|
-|FR27 (streetview-style imagery during planning) may depend on the same paid Google Street View Static API as FR28|Medium|Medium|Confirm whether FR27 needs live Street View imagery or can use a cheaper/open alternative (e.g. Mapillary) before scoping; if it does need the Street View Static API, treat cost/key management as one shared risk with FR28 rather than solving it twice|
-
-\---
-
-## 8\. Milestones (Sequenced, not Dated)
-
-Given this is a solo learning project, milestones are ordered by dependency rather than calendar-dated.
-
-|Milestone|Deliverable|Validates|
+| Phase | Mechanism | Rationale |
 |-|-|-|
-|M1 — Routing spike|OSMnx generates routes for all five MVP themes (FR1–FR5: flattest, most climbing, lowest traffic, fewest turns — maneuver/way-change based, not curvature, see FR4 — most art/history) between two points from a local OSM extract, including the local-first elevation pipeline using GEDTM30 via the OpenTopography API (§9 item 2, replacing the earlier SRTM/open-elevation.com approach), called directly under a personal free-tier key at this stage|Core routing feasibility across all five P0 themes, plus elevation sourcing|
-|M2 — API wrap|FastAPI endpoint(s) return M1's five theme routes as JSON with OpenAPI docs (FR6)|FastAPI learning goal|
-|M3 — Desktop client + tiles|Flutter Desktop app calls the API and renders routes using self-hosted tiles generated from local OSM extracts, with toggleable OSM tag layers (FR7, FR8), start-point/destination selection via geocoded search / map tap (FR34), route-shape selection — loop / out-and-back / point-to-point (FR35); the first-start MVP region download (FR38: North Carolina, Wisconsin, or Southern California, direct from OpenTopography); and local data pruning for Desktop (FR39), once a user has more than one downloaded region to manage|Flutter + client-server integration, plus tile-pipeline feasibility, the route entry step, and cold-start content acquisition|
-|M4 — GPX export|All five MVP theme routes exportable as GPX, TCX, and FIT, verified in RideWithGPS (FR9)|MVP completion (§3.4)|
-|M5 — Multi-day trips|Daily mileage/elevation splitting (FR11; elevation pipeline already validated in M1) + waypoints (FR10) + surface-type scoring (FR12) + sliding-scale elevation/surface weighting (FR13, tour/day/partial-day) + lodging/campground data (FR14, OSM tags alone — §9 item 11) + Historical Weather via Open-Meteo (FR15, §9 item 10), the shared weather-data foundation, surfaced on Desktop first|P1 trip logistics|
-|M6 — Accounts, sync \& Web|Biometrics-first passkey auth (mobile + desktop) with magic-link registration (FR19); share-link flow (FR20); Flutter Web build reaches as close to full planning parity as practical (FR18); account-holder cross-device sync (FR21) with version-check-on-open-and-save reconciliation (FR32); trip library with share management (FR36); guest→account claim on sign-in (FR37); unauthenticated guest-tier web access (FR22) with in-memory per-IP rate limiting (§9 item 15); the shared Render-hosted elevation-tile cache extending the basemap-tile cache pattern to GEDTM30 (§5.2, §9 items 2/4); the packaged North Carolina content bundle superseding FR38's throwaway download, with Marion, NC as the default start location|P1 sharing/sync (FR19–FR22, FR32, FR36, FR37) plus the Web milestone, pulled forward from its earlier implicit "last" position since both sync and guest access depend on it, plus the realigned shared elevation-cache and packaged-content work (§9 item 2)|
-|M7 — Mobile + offline|Android/iOS builds (FR17), offline trip download (FR16), Weather Forecast (10-day/hourly) ships once the live-forecast data service (Open-Meteo, FR15) is integrated — surfacing simultaneously on the new Mobile client and retrofitted onto the already-existing Desktop and Web clients (including Guest Rider, FR22) — alongside the already-available Historical Weather (FR15); local data pruning (FR39) ships for Mobile, joining Desktop's version from M3, now that both platforms have accumulated enough downloaded map/elevation content (region bundles, offline trip packages) for it to matter|P1 mobile parity, plus Desktop/Web weather-forecast parity and cross-platform pruning|
-|M8 — Content layer|POI narration (FR24), crowd-sourced feedback (FR25), GeoJSON export (FR26)|P2 features|
-|M9 — Streetview imagery \& hyperlapse|Streetview-style imagery during planning (FR27) plus desktop-only streetwarp-cli hyperlapse integration (FR28, TBD) — both candidate plug-in based features (proposed, undecided; §3.5, §3.6)|FR27 grouped here since it likely shares FR28's Street View Static API dependency (§7) and now its plug-in based framing; hyperlapse implementation deliberately undetermined until this phase starts (§3.5)|
-|M10 — plug-in based trip version history (TBD, not committed)|Proposed plug-in based tier automatically retaining the last 5–10 versions of a trip for rollback (FR33)|Nothing yet — proposed future scope only, scheduled after every other milestone (§3.6); conflicts with the no-monetization stance in §3.3, flagged not resolved|
+| **MVP** (M1–M5) | Each device calls the OpenTopography API directly under its own free-tier key (FR38) | Works only because MVP has a handful of users. The 50-calls/24h limit makes this **explicitly disposable** — it is not the target architecture |
+| **Post-MVP** (M6+) | Shared Render-hosted cache: any tile downloaded by any user is cached server-side and served to every subsequent requester | Aggregate OpenTopography calls stay low regardless of user count. Also enables the packaged **North Carolina** content bundle with **Marion, NC** as the default start, so a user with no downloads still opens to a populated app |
 
-\---
+### 5.3 Middle Layer — FastAPI
 
-## 9\. Open Questions
+**Learning goal**: Typed request/response models with Pydantic, dependency injection, async endpoint design, OpenAPI generation as a byproduct of code.
 
-### Resolved
+**Requirements**:
+- Route generation, trip CRUD, and export endpoints exposed with auto-generated OpenAPI docs
+- Long-running route computations demonstrate async/background-task patterns rather than blocking request handling
+- Auth endpoints (WebAuthn passkey registration/verification, multi-passkey binding, FIDO2/CTAP hybrid QR authorization, magic-link issuance/consumption, share-token issuance) plus account sync (FR21) and stateless guest compute (FR22)
+- **Hosting**: FastAPI service, Postgres, and the Flutter Web static build on **Render** (Starter web service + Starter Postgres + free static site). Chosen for always-on behavior — OSMnx keeps compiled graphs cached in memory, and a cold start would hit a guest's first request hardest — and for fixed, predictable cost under anonymous traffic
+- **Tile service**: FastAPI runs the tile-generation pipeline server-side for a requested bounding box, caches the result, and serves it to Web. Bbox-scoped and on-demand — **not a standing global tile server**. The same cache is the origin for Desktop/Mobile's offline tile bundles, so there is one pipeline, not two
+- **Elevation cache**: the same cache-once-serve-many model applies to GEDTM30 tiles (§5.2). A distinct cache from basemap tiles, identical pattern
+- **Geocoding**: OSMnx's built-in `geocoder.geocode()`, called server-side. This is OSMnx's own wrapper around the Nominatim API — free, keyless, no self-hosted Nominatim/Photon instance needed, no Google dependency. **One unified path for Desktop, Web, and Mobile alike**
+- **Guest rate limiting**: in-memory per-IP counter (e.g. `slowapi`) on the single Render instance, using a UAT-calibrated mean+2σ threshold with progressive cool-off. No Redis. A known simplification that only breaks if Render ever needs a second instance. IP-only key, accepting some false-positive risk for guests behind a shared NAT
+- **Web session**: cross-site cookie (`SameSite=None; Secure`) with full CORS credentialed-request configuration, since the static build and API are separate Render origins. **Explicit origin allowlist, never a wildcard** — `Access-Control-Allow-Credentials` must pair with a specific origin
+- *Stretch*: WebSocket/SSE endpoint streaming route-generation progress
 
-1. **OSM extract/caching**: OSMnx's own graph caching (not a separate `.osm.pbf` extract pipeline). See §5.1.
-2. **Elevation data source \& fallback behavior** (revised 2026-07-13): GEDTM30 — a 30m global ensemble digital terrain model that already fuses Copernicus DEM, ALOS World 3D, and ICESat-2/GEDI ground points into one dataset — accessed via the OpenTopography Global DEM API, replaces the earlier SRTM-primary/open-elevation.com-fallback approach; GEDTM30 needs no separate fallback service since it's already a single best-available source. Raster GeoTIFF tiles are fetched per trip bounding box and cached locally, read via `rasterio`. A local data void or failed fetch still falls back to a flat-earth assumption (0.0m elevation change) for that coordinate rather than stalling or erroring — unchanged. Two sourcing paths by phase: MVP — each device calls the OpenTopography API directly under its own free-tier key (FR38, a throwaway stopgap); post-MVP — a shared Render-hosted cache serves any previously-downloaded tile to every subsequent requester, keeping usage within OpenTopography's 50-calls/24h non-academic rate limit regardless of user count. Required starting at M1 (FR1, FR2) via the direct-call path; the shared-cache path realigns to M6 alongside the rest of the Render-hosted infrastructure. GEDTM30 is CC BY-licensed — attribution required. See §5.1, §7, §8.
-3. **Multi-user/accounts**: Required, not deferred — shared routes are a must-have for the Professional Tour Planner persona. See FR19/FR20, §3.2.
-4. **Map tile source** (restated 2026-07-13 to cover elevation tiles): Self-hosted basemap tiles generated from raw OSM extracts via one shared pipeline, not pulled from a third-party rendered-tile endpoint — Desktop/Mobile generate locally per trip bounding box; Web (no local generation path) fetches from a Render-hosted, on-demand, bbox-scoped server-side cache running the same pipeline, which Desktop/Mobile can also use as their offline-bundle origin. The same cache-once-serve-many model now also applies to GEDTM30 elevation raster tiles fetched from OpenTopography (item 2, above) — a distinct cache from the basemap-tile one, but following the identical bounded, bbox-scoped, on-demand pattern. Neither is a standing global tile server. See §5.1, §5.2, §5.3, §7.
-5. **Flutter map package**: `flutter\_map`. See §5.3.
-6. **Share vs. sync**: A share (FR20) stays the simple one-way, no-account-needed view case, as originally assumed. An account holder's own cross-device sync is a distinct, separate capability (FR21) rather than something a share implies. Resolved by splitting these into two FRs instead of overloading one — see §4.3.
-7. **Account/sync/sharing backend infrastructure**: Render hosts the FastAPI layer, its Postgres database, and the Flutter Web static build (Starter web service + Starter Postgres + a free static site) — see §5.2. Chosen over self-hosting on Greg's own infrastructure for ease of implementation, and because Render's fixed per-instance pricing bounds cost predictably under the anonymous traffic the guest tier (FR22) introduces.
-10. **Weather data service** (resolved 2026-07-13): Open-Meteo backs both Historical Weather and the Weather Forecast (FR15) — no API key required, CC BY 4.0 attribution required, free for non-commercial use up to 10,000 calls/day, the same free-for-non-commercial-use pattern as OpenTopography (item 2) and part of the rationale in §3.6 for keeping the core app itself free. Covers surface temperature, min/max, wind speed/direction, precipitation probability and timing, and a combined feels-like reading via `apparent_temperature` rather than separately-named heat-index/wind-chill fields, which Open-Meteo doesn't expose. Air quality comes from Open-Meteo's separate Air Quality API. See FR15.
-11. **Cafe/restaurant rest-stop data source** (resolved 2026-07-13): OSM tags (`amenity=cafe`/`amenity=restaurant`) alone are sufficient for the core application. A richer, curated source (verified hours, reviews) remains a candidate for the plugin tier, not a core-app requirement — see §3.6.
-12. **Power efficiency validation** (resolved 2026-07-13): The acceptance criterion is that the app runs without errors or crashes while the device's OS-level power-saving mode is active — a pass/fail behavioral check, not yet a numeric target (battery %/hour, GPS poll interval). Numeric targets can be added later if this proves insufficient.
-13. **FR30/FR31 scope** (resolved 2026-07-13): Both move to plugin-candidate status, joining FR27/FR28/FR33 (and the richer lodging/rest-stop source from item 11) under the proposed plugin direction (§3.6). The underlying data-source question (OSM cycle-infrastructure tags vs. a third-party heatmap-style service) is deferred to whenever that plugin is actually scoped, rather than blocking core MVP/P1 work.
-14. **Cross-device sync conflict resolution**: Whole-trip reconciliation is a user-facing choice, not silent last-write-wins — the version-check flow (FR32), run both on open and immediately before save, notifies the user when the server has a newer version and lets them save-as (keep both) or overwrite. The on-save check specifically catches parallel edits where two devices opened the same version, which an open-only check would miss. Any modified trip attribute, not just a whole-trip edit, is reconciled the same way; the system does not attempt to detect or merge which specific segment/field changed — by design, to keep the reconciliation UX simple rather than adding per-field diffing complexity. See §4.3 FR32, §4.4, §7.
-15. **Guest-tier compute rate-limiting/anti-abuse — concrete mechanism** (resolved 2026-07-13, implementing the shape set in `ARCHITECTURE.md` §8.2): An in-memory, per-IP request counter (e.g. a FastAPI middleware library such as `slowapi`) on the single Render instance, applying the previously-resolved UAT-calibrated mean+2σ threshold with progressive cool-off. No Redis or other added infrastructure for MVP — a known simplification, flagged in §7, that only breaks if Render ever needs a second instance. IP alone (not a compound IP+browser-fingerprint key) is the identification key, accepting some false-positive risk for guests sharing a NAT'd IP as a simpler MVP trade-off.
-16. **Local-first scope, revisited (2026-07-10)**: Local-first is a hard guarantee for Desktop and Mobile only. Web was always structurally dependent on the hosted API for compute (no offline OSMnx in a browser); treating that as a narrow "exception" bought nothing once Render/Postgres were already committed for accounts and sync, so Web is now explicitly a conventional, server-backed surface with a normal signed-in session model (cookie + revocable Postgres session row) rather than the storage-avoidance token scheme used elsewhere. Guest sessions (FR22) are unaffected — their statelessness is a privacy guarantee, not a cost-avoidance one. See `ARCHITECTURE.md` §2 (Principles 1 and 6) and §8.1 for the full model.
-18. **Web offline capability, given item 16** (resolved 2026-07-13): Item 16 already establishes that Web has no offline compute path at all — no browser runs OSMnx offline — regardless of session model. So FR18's "as close to Desktop parity as practical" never implied offline capability; there's no compute path for a service-worker/PWA cache to sit in front of. Web is intentionally online-only; FR18's scope going into M6 is pure planning-feature parity, not offline parity.
-19. **Contrast-mode preference scope**: An explicit contrast-mode override (Indoor vs. Outdoor) is a synced, account-level preference carried via cross-device sync (FR21), not a per-device local setting — it travels with the signed-in user. The *automatic* contrast default is separate from this synced state and is evaluated fresh per surface/context every time (device type, viewport, and where practical, ambient light or the OS's light/dark setting). See §6, UX.md §4, and the Brand Guide's "Interface Adaptability & Contrast Modes."
-20. **Web session cookie strategy** (resolved 2026-07-13): Cross-site — `SameSite=None; Secure` cookie, with full CORS credentialed-request configuration (`Access-Control-Allow-Credentials`, explicit origin allowlisting rather than a wildcard) between the Flutter Web static build and the FastAPI origin. Not a reverse-proxy/custom-domain same-origin setup. See §5.2, §9 item 16.
-21. **Lodging/campground data beyond OSM tags** (resolved 2026-07-13): The core app continues using OSM tags alone (FR14, consistent with item 11's rest-stop resolution). A richer, curated lodging/campground source is logged as a proposed **node/point data-provider plugin** under §3.7 — joining the same category as restaurants, bike shops, and other business data — not a core-app commitment.
-22. **Rider profile field-level sharing** (resolved 2026-07-13, closes §9 item 22 / FR41): When a rider grants a Professional Tour Planner access, the UI presents per-field selection controls (checkboxes) so the rider chooses exactly which profile fields that planner can see — access is opt-in per field, defaulting to the least-shared state (nothing visible until explicitly checked), not opt-out from a shared-everything default. This resolves FR41's previously-flagged "not fully resolved" access question — see FR41 for the updated requirement text.
-23. **Offline start-point/destination search** (resolved 2026-07-13, closes §9 item 21): A start point (or destination/waypoint) can only be set within the bounds of the trip's currently-downloaded offline content. Attempting to set one outside those bounds prompts the user to restore connectivity before it can be set — no partial or best-effort offline geocoding attempt for an out-of-bounds location.
-24. **Geocoding service — corrected 2026-07-13**: One unified path across Desktop, Web, and Mobile — OSMnx's own built-in `geocoder.geocode()` function, called server-side from FastAPI. Per OSMnx's own documentation, this is already a wrapper around the Nominatim API's "search"/"lookup" endpoints — free and keyless, with no Google dependency anywhere in the geocoding path. This supersedes an earlier, incorrect draft of this item that briefly split Mobile onto a native-OS-geocoding path with an assumed Google Play Services dependency; that split was based on a misreading and never reflected what was actually being asked for. No self-hosted Nominatim/Photon deployment is needed — OSMnx already wraps that call.
+### 5.4 Client — Flutter/Dart
 
-### Follow-up (raised by the above decisions)
+**Learning goal**: one Dart codebase, four build targets, with a real understanding of where platform-specific code is unavoidable (background location, offline storage, map rendering differences).
 
-8. What's the concrete tile-generation tool/workflow for self-hosted, per-trip offline tiles (e.g. `tilemaker` → MBTiles, vs. another pipeline)? Needed starting at M3 — see §8. *(Resolved in shape — Web's tile path is now defined: Desktop/Mobile generate locally per-trip bbox; Web fetches from a Render-hosted FastAPI endpoint that runs the same pipeline server-side, on-demand, and caches the result — bounded, bbox-scoped, not a standing global tile server — which Desktop/Mobile can also use as their offline-bundle origin, unifying the pipeline. The concrete generation tool itself (tilemaker vs. an alternative) remains undecided. 2026-07-13: MVP narrows the near-term picture further — it isn't per-trip bbox generation at all. MVP ships with three fixed, whole-region choices (North Carolina, Wisconsin, Southern California/LA-centered — FR38), downloaded wholesale on first start rather than generated per-trip. The per-trip bbox pipeline above is the post-MVP target, once the packaged-NC-bundle-plus-Render-cache phase lands (item 2); the concrete generation tool remains undecided for that later phase.)*
+**Requirements**:
+- Map rendering via `flutter_map` over self-hosted tiles, not a proprietary maps SDK. Desktop/Mobile generate locally per trip bbox; Web fetches from the Render cache (§5.3)
+- Local persistence (`sqlite`/`drift`) for offline trip storage — core to FR16/FR17, not polish
+- Biometric passkey integration (WebAuthn/`passkeys` plugin) with a shared auth flow across mobile and desktop rather than per-platform bespoke logic — **the hardest cross-platform-parity test in the app**
+- Layer visibility (FR8) as toggleable `flutter_map` layers keyed to OSM tag categories, not a hardcoded layer set
+- Output/integration plugins are Flutter-side packages holding their own OAuth tokens (§3.5)
 
-\---
+### 5.5 Explicit Non-Goals
+
+- No native iOS/Android modules beyond what Flutter plugins provide, unless a capability (e.g. background GPS) forces it
+- No infrastructure/DevOps learning track (no Kubernetes, no cloud-native deploy) — local-first keeps the ops surface small
+
+---
+
+## 6. Design & UX Principles
+
+- **Goal-driven planning is the primary interaction**, not a filter bolted onto a generic map. Theme selection is a first-run decision, never buried in settings
+- **Setting the start point is the first action in every flow** (FR34) and must be frictionless — search, map tap, or current location, never a coordinate-entry chore
+- **Loops are the path of least resistance.** Loops > point-to-point > out-and-back, per the Weekend Cyclist persona. Route shape is chosen independently of theme (FR35), with loop pre-selected
+- **A user's work is never silently lost at a boundary.** Signing in offers to bring guest work along (FR37); a version conflict lets the user keep both (FR32); saved trips live in one manageable library (FR36)
+- **Surface type and traffic level are always visible on a route**, not hidden behind a details screen
+- **Offline is a first-class state, not degraded UX.** Quiet, passive, glanceable status — never prompts, toasts, or modals (§4.4)
+- **Map content is opt-in and user-configurable.** The default view doesn't force every rider through menus for POI categories irrelevant to them
+- **Guest use is first-class for what it supports, not a crippled trial.** Login prompts appear only at a real capability boundary (saving to an account, cross-device access, plugin features) — never preemptively
+- **Parity is a direction of travel, not a pass/fail bar.** Where a real behavioral difference exists (Web is online-only; the installed apps work offline), state it plainly rather than papering over it with a parity claim
+- **Indoor/Outdoor contrast is one adaptive system, not a manual toggle.** The app senses context (device type, viewport, and where practical, ambient light or OS light/dark) and defaults intelligently — Mobile defaults to Outdoor, Desktop/Web to Indoor. A manual switch exists only as an override when the automatic read is wrong (e.g. planning from a laptop at a sunny trailhead). An override is a synced, account-level preference; the automatic default still evaluates fresh per surface
+
+---
+
+## 7. Risks & Mitigations
+
+| Risk | Prob. | Impact | Mitigation |
+|-|-|-|-|
+| OSMnx multi-factor weighting across all five themes is harder than expected (elevation/POI/surface data sparse or inconsistent in OSM) | High | Medium | Build and validate the elevation pipeline and POI-tag scoring within M1, before the API/client layers depend on them |
+| Chasing full four-target parity balloons scope | High | Medium | Parity is a direction of travel, not a contract (§6). Sequence targets: Desktop → Web → Mobile |
+| Biometric passkey support has uneven Flutter plugin maturity across Desktop vs. Mobile | Medium | High | Spike passkey auth early (before M5). Where a platform's support is too immature, fall back to the magic-link session that already serves as the new-device and recovery path |
+| Segment-varying weighting (FR13) turns route scoring into a per-position function instead of a scalar | Medium | Medium | Build the single-scalar versions (FR1–FR5) first; treat day/segment overrides as an explicit follow-on iteration on the same functions, not a rewrite |
+| The MVP direct-call elevation flow (FR38) exhausts OpenTopography's 50-calls/24h free-tier limit as users grow even modestly | Medium (rises with users) | Medium | Accepted as a **known throwaway limitation** — FR38 is scoped to a handful of users by design. The M6 shared cache (§5.2) removes it entirely |
+| Coordinate-to-tile management and elevation data voids in the routing core | Medium | Medium | Flat-earth fallback (0.0m) per coordinate so routing never stalls. GEDTM30 has no secondary network fallback by design — it's already a single best source |
+| Self-hosted tile pipeline adds tooling overhead beyond app code; Web has no local generation path | Medium | Medium | Scope to per-trip bbox generation, not a standing tile server. Web fetches from the bounded Render cache (§5.3). Elevation gets its own distinct cache under the same pattern |
+| Packaging North Carolina content into the binary (post-MVP) grows install size | Medium | Low | Accepted trade-off for a populated app on first open with zero downloads. FR39 (pruning) bounds ongoing storage growth, though not binary size |
+| Local OSM extract size/performance on mobile devices | Medium | Medium | Scope offline downloads to a per-trip bounding box, not full regional extracts |
+| Guest-tier compute is reachable by anonymous traffic, creating a cost/abuse surface | Medium | Medium | In-memory per-IP rate limiting (§5.3). Guest sessions stay fully stateless server-side, so abuse can't accumulate persistent cost. Browser-local guest storage never touches the server and adds no surface |
+| Web's cookie session across separate Render origins invites CORS misconfiguration — a real vulnerability class | Medium | Medium | Explicit origin allowlist, never a wildcard; `Access-Control-Allow-Credentials` paired with a specific origin (§5.3). Verify before M6 ships |
+| Cross-device sync (FR21) introduces conflict resolution the app never needed while purely local | Medium | Medium | FR32's explicit version check at open *and* save. No silent last-write-wins. Revisit per-field merge only if the whole-trip choice proves inadequate — avoid a speculative CRDT system |
+| Rider profile (FR40) introduces sensitive personal data (emergency contact, home location) the app hasn't stored before | Medium | Medium | FR41's field-level, opt-in, least-shared-by-default sharing model. A planner never sees a sensitive field without the rider explicitly checking it |
+| Output/integration plugins hold third-party OAuth tokens client-side, and each platform's API drifts independently — N maintenance relationships instead of one | Medium (rises per integration) | Medium/High | Platform-appropriate secure storage (Keychain/Keystore), never the trip-data layer. Curate a small integration list rather than opening a marketplace, so drift stays bounded |
+| Desktop/Mobile's hosted-service touchpoints could drift into a general multi-tenant backend | Medium | Medium | Scope each exception separately: auth + share-token brokering (FR20); per-account sync only (FR21); stateless compute only (FR22). Never merge into one general-purpose service |
+| Plugin features (FR27/FR28) depend on the metered Google Street View Static API and `ffmpeg` — unlike anything else in the stack | Low (unscoped) | Low | Deliberately deferred. Confirm whether FR27 needs live Street View or can use an open alternative (e.g. Mapillary) before scoping; if both need it, treat as one shared cost/key risk |
+
+---
+
+## 8. Milestones
+
+Ordered by dependency, not calendar-dated — this is a solo project.
+
+| # | Milestone | Deliverable | Validates |
+|-|-|-|-|
+| **M1** | Routing spike | OSMnx generates routes for all five themes (FR1–FR5) between two points from a local OSM extract, including the GEDTM30 elevation pipeline via direct OpenTopography calls | Core routing feasibility + elevation sourcing |
+| **M2** | API wrap | FastAPI returns M1's five theme routes as JSON with OpenAPI docs (FR6) | FastAPI learning goal |
+| **M3** | Desktop client + tiles | Flutter Desktop app renders routes on self-hosted tiles with toggleable layers (FR7, FR8); start/destination selection (FR34); route shape (FR35); first-start region download (FR38); Desktop data pruning (FR39) | Flutter + client-server integration, tile pipeline, cold-start content |
+| **M4** | Export | All five themes export as GPX/TCX/FIT, verified in RideWithGPS (FR9) | **MVP complete** (§3.3) |
+| **M5** | Multi-day trips | Daily splitting (FR11), waypoints (FR10), surface scoring (FR12), sliding-scale weighting (FR13), lodging from OSM tags (FR14), Historical Weather via Open-Meteo (FR15) — surfaced on Desktop first | P1 trip logistics |
+| **M6** | Accounts, sync & Web | Passkey auth (FR19); sharing (FR20); Flutter Web (FR18); cross-device sync (FR21) with version-check reconciliation (FR32); trip library (FR36); guest→account claim (FR37); guest tier with rate limiting (FR22); **the shared Render elevation/tile cache and packaged NC bundle, superseding FR38** (§5.2) | P1 sharing/sync. Web precedes Mobile because both sync and the guest tier depend on it |
+| **M7** | Mobile + offline | Android/iOS builds (FR17); offline trip download (FR16); Weather Forecast ships across Desktop, Web, and Mobile simultaneously (FR15); Mobile data pruning (FR39) | P1 mobile parity + forecast parity |
+| **M8** | Content layer | POI narration (FR24), crowd-sourced feedback (FR25), GeoJSON export (FR26) | P2 features |
+| **M9+** | Plugins | Plugin infrastructure, then individual plugins (FR27, FR28, FR30, FR31, FR33) as each is taken up | Unscoped — see §3.5 |
+
+---
+
+## 9. Open Questions
+
+| # | Question | Blocking |
+|-|-|-|
+| 1 | What's the concrete tile-generation tool/workflow for self-hosted tiles (`tilemaker` → MBTiles, or an alternative)? MVP narrows the near-term need — FR38 ships three fixed whole regions, not per-trip bbox generation — so the per-trip pipeline is a post-MVP question | M6 (post-MVP tile pipeline). Not M3 |
+| 2 | Does the plugin architecture need a formal interface/SDK spec before the first plugin ships, or does the first plugin define the interface by example? | M9 |
+| 3 | Which indoor ride simulators are actually in scope for output plugins (Zwift, TrainerRoad, RGT, others)? | M9 |
+
+**Note**: §3.4 states no monetization of the core app. Shipping a *paid* plugin would need that statement formally revisited — flagged, not yet resolved, and not blocking until a paid plugin is actually scoped.
+
+---
 
 ## Appendix: Reference
 
-* Full feature list and persona detail: `Cycle Tour Planner.md`
-* Architecture summary: `CLAUDE.md`
+- Full feature list and persona detail: `Cycle Tour Planner.md`
+- **Architecture design**: to be rebuilt. The decisions in §3.2, §4.4, §5, and §7 are the inputs to that new design pass
