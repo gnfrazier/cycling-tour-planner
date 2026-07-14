@@ -279,12 +279,13 @@ This is the whole reason FR13 is "an iteration on the same functions, not a rewr
 | | **Sidecar mode** (Desktop/Mobile) | **Hosted mode** (Render) |
 |-|-|-|
 | Bind | `127.0.0.1`, ephemeral port | `0.0.0.0`, public |
-| Auth | None (loopback is the trust boundary) | Passkey / session cookie / guest |
+| Hostname | loopback | `api.<custom-domain>` — **never `*.onrender.com`** (§6.6) |
+| Auth | None (loopback is the trust boundary) | Passkey / same-site session cookie / guest |
 | Database | None | Postgres |
 | Routing endpoints | ✅ | ✅ |
 | Auth / sync / share endpoints | ❌ disabled | ✅ |
 | Tile + elevation cache | Local disk | Shared server-side |
-| CORS | Not applicable | Strict allowlist |
+| CORS | Not applicable | **Not applicable** — same-site (§6.6) |
 
 Mode is selected by an env var at startup. Endpoints not valid for a mode are **not registered** — not merely guarded. A sidecar has no `/auth/*` routes to attack.
 
@@ -358,6 +359,40 @@ Per PRD §5.3: in-memory per-IP counter (`slowapi`), UAT-calibrated mean+2σ wit
 
 **The known break condition, stated so it is not a surprise**: this is correct *only* on a single instance. If Render ever scales horizontally, each instance counts independently and the effective limit multiplies by N. That is the accepted MVP simplification (PRD §7) — but the *trigger* for revisiting it is "a second instance exists," not "abuse was observed." Write it down as a deployment invariant: **one instance, or redesign the limiter.**
 
+### 6.6 The Web session, and why a custom domain is architectural
+
+Web's signed-in session is an `HttpOnly; Secure; SameSite=Lax` cookie scoped to a shared parent domain:
+
+```
+app.<domain>     →  Flutter Web static build
+api.<domain>     →  ctp-service (hosted mode)
+cookie:  Domain=.<domain>;  HttpOnly;  Secure;  SameSite=Lax
+```
+
+**Why this is not merely a hosting preference.** `SameSite` is evaluated on the **registrable domain (eTLD+1)**, not the origin. `app.example.app` and `api.example.app` are *different origins* but the *same site* — so the cookie is **first-party**, and nothing blocks it.
+
+Render's default hostnames break this, and they break it invisibly. `onrender.com` is on the **Public Suffix List** — the same registry that stops one `github.io` user from setting cookies for another. Being on that list means `onrender.com` is treated as an eTLD, which makes `app.onrender.com` and `api.onrender.com` genuinely **cross-site**, not merely cross-origin. The session cookie would then be a **third-party cookie**:
+
+| Browser | Behavior with a third-party session cookie |
+|-|-|
+| Chrome | Works (today) |
+| Safari (ITP) | **Blocked** |
+| Firefox (Total Cookie Protection) | **Blocked / partitioned** |
+
+The failure mode is the dangerous kind: it works perfectly in the browser most likely used during development, and silently drops sessions for a meaningful share of real users. It would not be caught by any test that doesn't specifically run in Safari.
+
+**So: a custom domain is a prerequisite for M6, not a launch-day nicety.** The cost is a domain registration. The alternative is a class of bug that is invisible until it isn't.
+
+**What this decision deletes.** Same-site means:
+- No `SameSite=None`
+- No CORS credentialed-request configuration
+- No `Access-Control-Allow-Credentials` / origin-allowlist to get wrong
+- **No "overly permissive CORS" vulnerability class** — it doesn't exist here, rather than being mitigated
+
+**Rejected alternative — Bearer tokens in web storage.** Storing a session token in `localStorage` or IndexedDB and sending it in an `Authorization` header would sidestep cookies entirely. It is rejected: web storage is **readable by any XSS**, whereas an `HttpOnly` cookie is not. That trades a solvable configuration problem for a permanent security downgrade. A memory-only token avoids the XSS exposure but dies on refresh, requiring a refresh token — which must be stored — which lands back in the same place with more moving parts.
+
+**Fallback if the custom domain is ever unavailable**: serve the Flutter Web build *from FastAPI itself* as static files. One origin, same-site by construction, zero cookie problems. Less clean separation, but architecturally sound.
+
 ---
 
 ## 7. Tier 3 — Flutter Client
@@ -422,6 +457,8 @@ passkey(id, account_id → account, credential_id, public_key,
 
 session(token_hash, account_id → account, expires_at, revoked_at)
   -- Web only; Desktop/Mobile use passkey assertions, not cookies
+  -- Delivered as HttpOnly/Secure/SameSite=Lax on the shared parent domain (§6.6)
+  -- token_hash, never the raw token: a DB leak does not yield usable sessions
 
 trip(id, account_id → account, name, version, updated_at,
      payload JSONB, deleted_at)
@@ -597,6 +634,7 @@ These are risks introduced *by this design* — distinct from the product risks 
 | A5 | `ctp-core` drifts toward web-awareness — someone passes a `Request` in, or reaches for a user ID | Medium | P1 enforced by lint: `ctp-core` may not import `fastapi`. Make it a CI check, not a code-review hope |
 | A6 | Two `ctp-core` deployments (sidecar + Render) drift to different versions, causing routes that differ by platform | Medium | Version-pin the sidecar binary to the service release. Surface both versions in `/health` so a mismatch is visible, not mysterious |
 | A7 | The M6 elevation-cache transition requires a client rewrite because M1 hardcoded direct OpenTopography calls | Medium | §9.1: build the interface indirection at M1. The cost is one afternoon now versus a client rewrite later |
+| A8 | **Web ships on `*.onrender.com`** and sessions silently break in Safari/Firefox (third-party cookie blocking) while working fine in Chrome (§6.6) | Low probability, **HIGH impact** | Custom domain is a **hard M6 prerequisite**, not a launch task. M6 exit criterion: verify session persistence in Safari *and* Firefox, not only Chrome. This failure is invisible to a Chrome-only test |
 
 ---
 
@@ -616,6 +654,7 @@ Decisions made *in this document* (PRD decisions are logged in the PRD).
 | D8 | **Plugins split across two runtimes** (Dart for output, Python for data providers) | Each category runs where its data must live: OAuth tokens on-device, edge scoring in the graph | A single plugin runtime — would force OAuth tokens through the server, making the service a credential custodian |
 | D9 | **Built-in OSM lookups implement the provider interfaces** | Proves the interfaces are real at M1, not at M9 | Bolting interfaces on later, discovering they don't fit |
 | D10 | **Elevation-cache indirection built at M1**, before it is needed | M6's shared-cache transition becomes a config change, not a client rewrite | Hardcoding direct calls, paying for it at M6 (A7) |
+| D11 | **Custom domain + same-site `SameSite=Lax` cookie**; `*.onrender.com` is disqualified for the deployed Web client | `onrender.com` is on the Public Suffix List, making its subdomains cross-*site*, not just cross-origin — so the session cookie becomes a third-party cookie, blocked by Safari/Firefox but not Chrome. A custom domain makes the cookie first-party and **deletes the entire CORS-credentials surface** rather than mitigating it | Cross-site `SameSite=None` + CORS allowlist (breaks in Safari/Firefox); Bearer token in `localStorage`/IndexedDB (XSS-readable — a permanent security downgrade to avoid a one-time config problem); reverse-proxy/API gateway (heavier than buying a domain) |
 
 ---
 
