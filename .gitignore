@@ -9,7 +9,11 @@
 # Keep dependency lockfiles (uv.lock, pubspec.lock) — not covered by the line above
 !*.lock
 
+# Ignore raster archives
+assets/rasters/*.tar.gz
 
+# Ignore zone identifier fragment files
+*:Zone.Identifier
 
 # Flutter repo-specific
 /bin/cache/
