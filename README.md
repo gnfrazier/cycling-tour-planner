@@ -45,10 +45,13 @@ backend/
   ctp_service/       FastAPI wrapper — /routes/generate, /routes/{id}/export,
                       /geocode, /tiles/{z}/{x}/{y}, /health, /admin/clear-cache
   tests/             pytest suite (38 tests)
+  sidecar_entrypoint.py  Minimal PyInstaller entrypoint for the frozen ctp-service binary
 client/
   lib/               Flutter Desktop app — domain/data/state/presentation layers
   integration_test/  End-to-end test driving the real app against the real backend
+  linux/, windows/   Desktop platform targets built by CI
 assets/              Design assets (wireframes, rasters)
+.github/workflows/   CI — see Build pipeline below
 ```
 
 ## Running the desktop app
@@ -103,6 +106,40 @@ cd client && flutter analyze
 # Client — end-to-end against the real backend (start the backend first, see above)
 cd client && flutter test integration_test/app_test.dart -d linux
 ```
+
+## Build pipeline
+
+`.github/workflows/desktop-build.yml` runs on every push/PR to `main` (and
+`workflow_dispatch`), on a `[ubuntu-latest, windows-latest]` matrix. It's
+**CI validation only** — it proves both desktop targets lint, test, freeze,
+and build cleanly; it doesn't publish artifacts or releases. Per run:
+
+1. Backend: `uv sync`, `uv run pytest` (38 tests)
+2. Backend: freezes `ctp-service` into a standalone binary with PyInstaller
+   (`--onedir`), then smoke-tests the frozen binary by launching it and
+   polling `/health`
+3. Client: `flutter analyze`, `flutter test`, then `flutter build linux` /
+   `flutter build windows`
+
+To reproduce the freeze step locally:
+
+```sh
+cd backend
+uv sync --all-groups
+uv run pyinstaller --onedir --clean --name ctp-service \
+  --copy-metadata osmnx --copy-metadata rasterio --collect-submodules rasterio \
+  sidecar_entrypoint.py
+./dist/ctp-service/ctp-service --port 8123   # then curl http://127.0.0.1:8123/health
+```
+
+**Scope note**: `sidecar_entrypoint.py` is a minimal PyInstaller entrypoint —
+enough to prove the backend freezes into a working server. It is *not* the
+full sidecar lifecycle from `ARCHITECTURE.md` §6.3 (PID file, orphan sweep,
+`--mode`/`--cache-dir` wiring, readiness polling from the client). The
+Flutter client still talks to a hand-started dev backend (see above); it
+does not yet spawn or discover the frozen binary. That client-side
+spawn/discovery integration, plus assembling client + sidecar into one
+installer, is future work — this pipeline only makes both halves buildable.
 
 ## GeoTIFF source
 

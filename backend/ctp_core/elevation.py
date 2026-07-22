@@ -39,18 +39,23 @@ class GedtmElevationProvider:
     def __init__(self, tile_paths: list[Path]):
         self._tile_paths = [Path(p) for p in tile_paths]
         self._datasets: list | None = None
-        self._warned_missing: set[Path] = set()
+        self._warned_paths: set[Path] = set()
 
     def _open_datasets(self):
         if self._datasets is None:
             opened = []
             for path in self._tile_paths:
                 if not path.exists():
-                    if path not in self._warned_missing:
+                    if path not in self._warned_paths:
                         logger.warning("elevation tile missing on disk: %s", path)
-                        self._warned_missing.add(path)
+                        self._warned_paths.add(path)
                     continue
-                opened.append(rasterio.open(path))
+                try:
+                    opened.append(rasterio.open(path))
+                except Exception:
+                    if path not in self._warned_paths:
+                        logger.warning("elevation tile present but unreadable: %s", path, exc_info=True)
+                        self._warned_paths.add(path)
             self._datasets = opened
         return self._datasets
 
