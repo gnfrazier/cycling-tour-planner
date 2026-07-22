@@ -56,11 +56,18 @@ assets/              Design assets (wireframes, rasters)
 
 ## Running the desktop app
 
-Requires:
+Both Linux and Windows are supported — the client, and the CI in
+[Build pipeline](#build-pipeline), build for both. Requires:
 - Python 3.12+ and [uv](https://docs.astral.sh/uv/)
-- Flutter 3.x with the Linux desktop target enabled (`flutter config --enable-linux-desktop`)
+- Flutter 3.x, with the platform target enabled:
+  - Linux: `flutter config --enable-linux-desktop`
+  - Windows: `flutter config --enable-windows-desktop`, plus the "Desktop
+    development with C++" workload from Visual Studio Build Tools
+    (Flutter's Windows target needs it to compile the runner)
 
 ### 1. Start the backend
+
+**Linux/macOS (bash):**
 
 ```sh
 cd backend
@@ -69,6 +76,20 @@ uv sync
 # One-time: extract the local GEDTM30 elevation raster (already downloaded to
 # assets/rasters/) into the backend's dev cache
 mkdir -p .cache/elevation
+tar -xzf ../assets/rasters/rasters_GEDTM30.tar.gz -O output_be.tif > .cache/elevation/nc_gedtm30.tif
+
+uv run uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+**Windows (PowerShell):**
+
+```powershell
+cd backend
+uv sync
+
+# One-time: extract the local GEDTM30 elevation raster (already downloaded to
+# assets/rasters/) into the backend's dev cache. Windows 10/11 ships tar.exe.
+mkdir .cache\elevation
 tar -xzf ../assets/rasters/rasters_GEDTM30.tar.gz -O output_be.tif > .cache/elevation/nc_gedtm30.tif
 
 uv run uvicorn main:app --host 127.0.0.1 --port 8000
@@ -88,10 +109,14 @@ In a second terminal:
 ```sh
 cd client
 flutter pub get
-flutter run -d linux
+flutter run -d linux     # or: flutter run -d windows
 ```
 
-The client talks to `http://127.0.0.1:8000` by default (override with `flutter run -d linux --dart-define=CTP_API_BASE_URL=http://...`). In the app: search "Marion, NC" as a start point (or tap the map), pick a shape and theme, and generate a route.
+The client talks to `http://127.0.0.1:8000` by default (override with `--dart-define=CTP_API_BASE_URL=http://...`). In the app: search "Marion, NC" as a start point (or tap the map), pick a shape and theme, and generate a route.
+
+Note: on both platforms this is still the hand-started dev backend, not the
+frozen sidecar binary CI builds — see the scope note in
+[Build pipeline](#build-pipeline).
 
 ### Running the tests
 
@@ -104,7 +129,7 @@ cd client && flutter test
 cd client && flutter analyze
 
 # Client — end-to-end against the real backend (start the backend first, see above)
-cd client && flutter test integration_test/app_test.dart -d linux
+cd client && flutter test integration_test/app_test.dart -d linux    # or: -d windows
 ```
 
 ## Build pipeline

@@ -1,0 +1,121 @@
+name: Desktop build
+
+# CI validation only: proves the backend sidecar freezes and the Flutter
+# client builds cleanly on both desktop targets. No artifacts are published
+# and nothing is deployed — see the "Build pipeline" section in README.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux desktop build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # The default dev bbox (ctp_service/config.py) fetches a small area
+      # around Marion, NC from live Overpass. Caching keeps CI fast and
+      # avoids hammering a shared public service on every run.
+      - name: Cache OSMnx graph fetch
+        uses: actions/cache@v4
+        with:
+          path: backend/.cache/graph
+          key: osmnx-graph-${{ runner.os }}-${{ hashFiles('backend/ctp_service/config.py') }}
+
+      - name: Backend — install deps
+        working-directory: backend
+        run: uv sync --all-groups
+
+      - name: Backend — test
+        working-directory: backend
+        run: uv run pytest
+
+      - name: Backend — freeze sidecar (PyInstaller)
+        working-directory: backend
+        run: |
+          uv run pyinstaller --onedir --clean --name ctp-service \
+            --copy-metadata osmnx \
+            --copy-metadata rasterio \
+            --collect-submodules rasterio \
+            sidecar_entrypoint.py
+
+      - name: Backend — smoke test frozen sidecar
+        working-directory: backend
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            bin=dist/ctp-service/ctp-service.exe
+          else
+            bin=dist/ctp-service/ctp-service
+          fi
+
+          # Isolated cache dir: a frozen PyInstaller build's __file__-derived
+          # default cache path isn't the source tree, so pin it explicitly
+          # rather than rely on that resolution.
+          export CTP_CACHE_DIR="$RUNNER_TEMP/ctp-sidecar-cache"
+          "$bin" --port 8123 &
+          pid=$!
+
+          ok=""
+          for _ in $(seq 1 30); do
+            if curl -s -o /tmp/health.json http://127.0.0.1:8123/health; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+
+          kill "$pid" 2>/dev/null || true
+
+          if [ -z "$ok" ]; then
+            echo "frozen sidecar never responded on /health"
+            exit 1
+          fi
+          echo "sidecar responded:"
+          cat /tmp/health.json
+
+      - name: Client — install deps
+        working-directory: client
+        run: flutter pub get
+
+      - name: Client — analyze
+        working-directory: client
+        run: flutter analyze
+
+      - name: Client — test
+        working-directory: client
+        run: flutter test
+
+      - name: Client — build Linux
+        if: runner.os == 'Linux'
+        working-directory: client
+        run: flutter build linux
+
+      - name: Client — build Windows
+        if: runner.os == 'Windows'
+        working-directory: client
+        run: flutter build windows
