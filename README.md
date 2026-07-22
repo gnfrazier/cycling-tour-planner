@@ -58,7 +58,10 @@ assets/              Design assets (wireframes, rasters)
 
 Both Linux and Windows are supported — the client, and the CI in
 [Build pipeline](#build-pipeline), build for both. Requires:
-- Python 3.12+ and [uv](https://docs.astral.sh/uv/)
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/):
+  - Linux/macOS: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+  - Windows (PowerShell): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+  — then open a **new** terminal so the PATH change takes effect.
 - Flutter 3.x, with the platform target enabled:
   - Linux: `flutter config --enable-linux-desktop`
   - Windows: `flutter config --enable-windows-desktop`, plus the "Desktop
