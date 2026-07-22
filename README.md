@@ -67,6 +67,9 @@ Both Linux and Windows are supported — the client, and the CI in
   - Windows: `flutter config --enable-windows-desktop`, plus the "Desktop
     development with C++" workload from Visual Studio Build Tools
     (Flutter's Windows target needs it to compile the runner)
+  - Windows also needs **Developer Mode** enabled (`start ms-settings:developers`,
+    toggle it on) — Flutter's plugin system symlinks on Windows, and creating
+    symlinks without it requires admin privileges
 
 ### 1. Start the backend
 
