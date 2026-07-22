@@ -92,8 +92,11 @@ uv sync
 
 # One-time: extract the local GEDTM30 elevation raster (already downloaded to
 # assets/rasters/) into the backend's dev cache. Windows 10/11 ships tar.exe.
+# Extract to a file rather than piping stdout through `>` — PowerShell's `>`
+# is text-mode redirection and will corrupt binary output.
 mkdir .cache\elevation
-tar -xzf ../assets/rasters/rasters_GEDTM30.tar.gz -O output_be.tif > .cache/elevation/nc_gedtm30.tif
+tar -xzf ../assets/rasters/rasters_GEDTM30.tar.gz -C .cache/elevation output_be.tif
+Move-Item .cache\elevation\output_be.tif .cache\elevation\nc_gedtm30.tif -Force
 
 uv run uvicorn main:app --host 127.0.0.1 --port 8000
 ```
