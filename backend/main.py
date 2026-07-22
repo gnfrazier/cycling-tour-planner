@@ -1,14 +1,3 @@
-import osmnx
-import rasterio
-from fastapi import FastAPI
+from ctp_service.app import create_app
 
-app = FastAPI(title="Cycle Tour Planner API")
-
-
-@app.get("/health")
-def health() -> dict:
-    return {
-        "status": "ok",
-        "osmnx_version": osmnx.__version__,
-        "rasterio_version": rasterio.__version__,
-    }
+app = create_app()

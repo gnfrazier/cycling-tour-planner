@@ -6,8 +6,18 @@ readme = "README.md"
 requires-python = ">=3.12.12"
 dependencies = [
     "fastapi>=0.139.0",
+    "fit-tool>=0.9.15",
+    "gpxpy>=1.6.2",
+    "httpx>=0.28.1",
     "osmnx>=2.1.0",
     "pydantic>=2.13.4",
     "rasterio>=1.5.0",
+    "scikit-learn>=1.9.0",
     "uvicorn[standard]>=0.51.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
 ]

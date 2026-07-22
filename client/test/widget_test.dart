@@ -1,30 +1,24 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
+import 'package:client/main.dart';
+import 'package:client/state/routing_providers.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:client/main.dart';
+import 'fakes/fake_routing_client.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('app launches and shows the planner once the backend is ready', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          routingClientProvider.overrideWithValue(FakeRoutingClient()),
+          backendReadyProvider.overrideWith((ref) async => true),
+        ],
+        child: const CycleTourPlannerApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Cycle Tour Planner'), findsOneWidget);
+    expect(find.text('Generate route'), findsOneWidget);
   });
 }
