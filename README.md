@@ -8,11 +8,11 @@ This is also very much a learning project. The stack is fixed on purpose as a pr
 - **FastAPI** as the middle layer — typed request/response models, auto-generated OpenAPI docs
 - **Flutter/Dart**, one codebase across Desktop, Android, iOS, and Web
 
-The app is **local-first, not local-only**: Desktop and Mobile run the routing core on-device inside a local sidecar process, so every P0 capability works offline. Web is a deliberate exception — it always computes server-side, since there's no browser-side path to run OSMnx.
+The app is **local-first, not local-only**: Desktop and Mobile run the routing core on-device inside a local sidecar process, so every P0 capability works offline. Web is a deliberate exception — it always computes server-side, since there's no browser-side path to run OSMnx. (The current milestone runs the backend as a plain dev process rather than the packaged sidecar binary — see the scope note below.)
 
 ## Where things stand
 
-Early and scaffolding-only — no product code yet beyond a FastAPI health-check stub and the default Flutter starter app. The design work is well ahead of the build:
+**M1–M4 are built**: the OSMnx routing core (all five MVP themes + GEDTM30 elevation), the FastAPI wrap, and a working Flutter Desktop client that generates, renders, and exports routes. See [Running the desktop app](#running-the-desktop-app) below to try it. Everything past M4 (accounts, sync, Web, Mobile, plugins) is still design-only.
 
 | Doc | What it covers |
 |-|-|
@@ -22,7 +22,12 @@ Early and scaffolding-only — no product code yet beyond a FastAPI health-check
 | [`UX.md`](UX.md) | Outdoor-use UX principles (glare, gloves, offline-as-default, low cognitive load) |
 | [`Brand Guide.md`](Brand%20Guide.md) | Visual identity and color system |
 
-Treat the PRD and ARCHITECTURE docs as the current best guess, not a fixed spec — they'll keep evolving as building starts and reality pushes back on the plan.
+Treat the PRD and ARCHITECTURE docs as the current best guess, not a fixed spec — they'll keep evolving as building continues and reality pushes back on the plan.
+
+**Scope notes for this milestone** (deliberate simplifications, tracked in `ROADMAP.md` Leg 2, not oversights):
+- No frozen-binary sidecar packaging yet — `ctp-service` runs as a normal `uvicorn` dev process, and the Flutter client points at a fixed local port instead of spawning/discovering one.
+- No self-hosted tile-generation pipeline yet — `/tiles/{z}/{x}/{y}` proxies a public OSM tile server for local dev use only. The client still only ever talks to `ctp-service` for tiles, never a third party directly.
+- Only **North Carolina** has real data wired up (the region FR38's picker defaults to); Wisconsin and Southern California show as "coming soon" in the app.
 
 ### Current wireframe
 
@@ -33,9 +38,70 @@ A route-comparison view from the in-progress design: proposing an alternate segm
 ## Repo layout
 
 ```
-backend/   FastAPI service (ctp-service) — currently a health-check stub
-client/    Flutter app — currently the default starter scaffold
-assets/    Design assets (wireframes, rasters)
+backend/
+  ctp_core/          Pure routing library (no FastAPI import, enforced by test) —
+                      OSMnx graph build/cache, GEDTM30 elevation, the five theme
+                      weight profiles, route solving, GPX/TCX/FIT export
+  ctp_service/       FastAPI wrapper — /routes/generate, /routes/{id}/export,
+                      /geocode, /tiles/{z}/{x}/{y}, /health, /admin/clear-cache
+  tests/             pytest suite (38 tests)
+client/
+  lib/               Flutter Desktop app — domain/data/state/presentation layers
+  integration_test/  End-to-end test driving the real app against the real backend
+assets/              Design assets (wireframes, rasters)
+```
+
+## Running the desktop app
+
+Requires:
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/)
+- Flutter 3.x with the Linux desktop target enabled (`flutter config --enable-linux-desktop`)
+
+### 1. Start the backend
+
+```sh
+cd backend
+uv sync
+
+# One-time: extract the local GEDTM30 elevation raster (already downloaded to
+# assets/rasters/) into the backend's dev cache
+mkdir -p .cache/elevation
+tar -xzf ../assets/rasters/rasters_GEDTM30.tar.gz -O output_be.tif > .cache/elevation/nc_gedtm30.tif
+
+uv run uvicorn main:app --host 127.0.0.1 --port 8000
+```
+
+Wait for it to report ready before using the client — first startup fetches and caches the Marion, NC street graph from OpenStreetMap, which takes a few seconds:
+
+```sh
+curl http://127.0.0.1:8000/health
+# {"status":"ok","ready":true,"osmnx_version":"2.1.0","rasterio_version":"1.5.0"}
+```
+
+### 2. Run the client
+
+In a second terminal:
+
+```sh
+cd client
+flutter pub get
+flutter run -d linux
+```
+
+The client talks to `http://127.0.0.1:8000` by default (override with `flutter run -d linux --dart-define=CTP_API_BASE_URL=http://...`). In the app: search "Marion, NC" as a start point (or tap the map), pick a shape and theme, and generate a route.
+
+### Running the tests
+
+```sh
+# Backend — 38 tests
+cd backend && uv run pytest
+
+# Client — unit/widget tests
+cd client && flutter test
+cd client && flutter analyze
+
+# Client — end-to-end against the real backend (start the backend first, see above)
+cd client && flutter test integration_test/app_test.dart -d linux
 ```
 
 ## GeoTIFF source
