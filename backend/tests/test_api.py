@@ -81,3 +81,51 @@ def test_clear_cache_removes_on_disk_graph_cache_and_app_stays_up(client):
 
     # The already-loaded in-memory graph keeps serving until restart.
     assert client.get("/health").json()["ready"] is True
+
+
+def test_tile_out_of_range_coordinates_is_400(client):
+    resp = client.get("/tiles/25/0/0")
+    assert resp.status_code == 400
+
+
+def test_tile_proxies_a_real_upstream_tile(client):
+    resp = client.get("/tiles/1/0/0")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    assert len(resp.content) > 0
+
+
+def test_generate_route_rejects_out_of_range_latitude(client):
+    payload = {"start": {"lat": 95.0, "lon": -82.0091}, "theme": "flattest", "shape": "loop"}
+    resp = client.post("/routes/generate", json=payload)
+    assert resp.status_code == 422
+
+
+def test_generate_route_rejects_absurd_target_distance(client):
+    payload = {
+        "start": {"lat": 35.6841, "lon": -82.0091},
+        "theme": "flattest",
+        "shape": "loop",
+        "target_distance_km": 5000.0,
+    }
+    resp = client.post("/routes/generate", json=payload)
+    assert resp.status_code == 422
+
+
+def test_oversized_request_body_is_rejected(client):
+    oversized = b'{"pad": "' + b"a" * 2_000_000 + b'"}'
+    resp = client.post(
+        "/routes/generate",
+        content=oversized,
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 413
+
+
+def test_sidecar_only_routes_are_absent_in_hosted_mode():
+    app = create_app(mode="hosted", settings=Settings())
+    with TestClient(app) as hosted_client:
+        assert hosted_client.post("/admin/clear-cache").status_code == 404
+        assert hosted_client.get("/tiles/1/0/0").status_code == 404
+        # Common routes still registered.
+        assert hosted_client.get("/health").status_code == 200

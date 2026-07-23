@@ -1,9 +1,10 @@
 """ctp-service — FastAPI wrapping ctp-core (Architecture §6).
 
-Sidecar mode only: this milestone doesn't implement hosted mode (auth,
-sync, Postgres — Leg 4/M6), so `create_app` registers only the routing
-endpoints valid in every mode (Architecture §6.1 — endpoints not valid for
-a mode are not registered, not merely guarded).
+This milestone doesn't implement hosted mode's own endpoints (auth, sync,
+Postgres — Leg 4/M6), but `create_app` already gates registration on
+`settings.mode` (Architecture §6.1 — endpoints not valid for a mode are not
+registered, not merely guarded), so sidecar-only routes never exist at all
+when `CTP_MODE=hosted`.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ import osmnx
 import rasterio
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
+from starlette.datastructures import Headers
+from starlette.responses import PlainTextResponse
 
 from ctp_core.elevation import GedtmElevationProvider, enrich_elevation
 from ctp_core.export import export_route
@@ -38,12 +41,35 @@ logger = logging.getLogger(__name__)
 # not that contract. Not for production use (usage-policy-limited upstream).
 _TILE_UPSTREAM = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 _TILE_USER_AGENT = "cycle-tour-planner-dev/0.1 (local dev tile proxy)"
+_TILE_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 _EXPORT_MEDIA_TYPES = {
     ExportFormat.GPX: "application/gpx+xml",
     ExportFormat.TCX: "application/vnd.garmin.tcx+xml",
     ExportFormat.FIT: "application/vnd.ant.fit",
 }
+
+# Generous for this API's small JSON bodies; guards against a public
+# listener being handed an oversized declared Content-Length.
+_MAX_BODY_BYTES = 1_000_000
+
+
+class MaxBodySizeMiddleware:
+    """Rejects requests whose declared Content-Length exceeds the cap,
+    before the body reaches routing/Pydantic."""
+
+    def __init__(self, app, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http":
+            content_length = Headers(scope=scope).get("content-length")
+            if content_length is not None and int(content_length) > self.max_bytes:
+                response = PlainTextResponse("request body too large", status_code=413)
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 def _build_base_graph(settings: Settings) -> Graph:
@@ -80,11 +106,18 @@ def create_app(mode: str | None = None, settings: Settings | None = None) -> Fas
         load_task.cancel()
 
     app = FastAPI(title="Cycle Tour Planner API", lifespan=lifespan)
-    _register_routing_routes(app)
+    app.add_middleware(MaxBodySizeMiddleware, max_bytes=_MAX_BODY_BYTES)
+    _register_common_routes(app)
+    if settings.mode == "sidecar":
+        _register_sidecar_only_routes(app)
+    # hosted-only routes (auth/sync/share) are added here at M6 (Architecture
+    # §6.2) — endpoints not valid for a mode are not registered at all.
     return app
 
 
-def _register_routing_routes(app: FastAPI) -> None:
+def _register_common_routes(app: FastAPI) -> None:
+    """Endpoints valid in every mode (Architecture §6.2)."""
+
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         # Readiness, not liveness (Architecture §6.3) — a sidecar that's up
@@ -96,18 +129,6 @@ def _register_routing_routes(app: FastAPI) -> None:
             osmnx_version=osmnx.__version__,
             rasterio_version=rasterio.__version__,
         )
-
-    @app.post("/admin/clear-cache")
-    async def clear_cache() -> dict:
-        """FR39 (desktop half) — prune downloaded region data. Deletes the
-        on-disk OSMnx graph cache; the in-memory graph already loaded keeps
-        serving until the process restarts, at which point the region is
-        re-fetched fresh. Not a hot in-place reload — out of scope here."""
-        graph_dir = app.state.settings.graph_cache_dir
-        cleared = graph_dir.exists()
-        if cleared:
-            await run_in_threadpool(shutil.rmtree, graph_dir, True)
-        return {"cleared": cleared}
 
     @app.post("/routes/generate", response_model=RouteResponse)
     async def generate_route(req: RouteGenerateRequest) -> RouteResponse:
@@ -159,10 +180,30 @@ def _register_routing_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=404, detail=f"could not geocode {q!r}") from exc
         return GeocodeResponse(lat=lat, lon=lon, display_name=q)
 
+
+def _register_sidecar_only_routes(app: FastAPI) -> None:
+    """Endpoints valid only in sidecar mode (Architecture §6.2) — not
+    registered at all in hosted mode, not merely guarded (§6.1)."""
+
+    @app.post("/admin/clear-cache")
+    async def clear_cache() -> dict:
+        """FR39 (desktop half) — prune downloaded region data. Deletes the
+        on-disk OSMnx graph cache; the in-memory graph already loaded keeps
+        serving until the process restarts, at which point the region is
+        re-fetched fresh. Not a hot in-place reload — out of scope here."""
+        graph_dir = app.state.settings.graph_cache_dir
+        cleared = graph_dir.exists()
+        if cleared:
+            await run_in_threadpool(shutil.rmtree, graph_dir, True)
+        return {"cleared": cleared}
+
     @app.get("/tiles/{z}/{x}/{y}")
     async def tile(z: int, x: int, y: int) -> Response:
+        if not (0 <= z <= 19 and 0 <= x < 2**z and 0 <= y < 2**z):
+            raise HTTPException(status_code=400, detail="tile coordinates out of range")
+
         url = _TILE_UPSTREAM.format(z=z, x=x, y=y)
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=_TILE_TIMEOUT) as client:
             resp = await client.get(url, headers={"User-Agent": _TILE_USER_AGENT})
         if resp.status_code != 200:
             raise HTTPException(status_code=resp.status_code, detail="tile upstream error")

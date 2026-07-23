@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ctp_core.types import Coord, ExportFormat, Route, RouteShape, Theme
 
 
 class CoordModel(BaseModel):
-    lat: float
-    lon: float
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
 
     def to_coord(self) -> Coord:
         return Coord(lat=self.lat, lon=self.lon)
@@ -20,7 +20,9 @@ class RouteGenerateRequest(BaseModel):
     theme: Theme
     shape: RouteShape
     end: CoordModel | None = None
-    target_distance_km: float | None = None
+    # Upper bound keeps _node_near_distance's Dijkstra search bounded; 200km
+    # comfortably covers this project's multi-day-tour ambitions (PRD).
+    target_distance_km: float | None = Field(default=None, gt=0, le=200)
 
 
 class RouteResponse(BaseModel):
