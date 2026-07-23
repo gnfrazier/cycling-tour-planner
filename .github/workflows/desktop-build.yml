@@ -22,6 +22,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # ctp_service/config.py's no-env default is now a real ~80km shipped
+      # region (western NC), too slow/large to fetch fresh from live
+      # Overpass on every CI run. Pin CI to the same small box
+      # tests/conftest.py's TEST_BBOX uses, so both the pytest run and the
+      # frozen-sidecar smoke test below stay on the fast, cached path.
+      CTP_BBOX: "-82.030,35.675,-82.000,35.700"
     steps:
       - uses: actions/checkout@v4
 

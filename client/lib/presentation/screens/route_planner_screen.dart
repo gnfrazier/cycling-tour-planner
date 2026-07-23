@@ -111,19 +111,25 @@ class _PlannerBody extends ConsumerWidget {
                         .map((s) => ButtonSegment(value: s, label: Text(s.label)))
                         .toList(),
                     selected: {shape},
-                    onSelectionChanged: (selection) =>
-                        ref.read(selectedShapeProvider.notifier).state = selection.first,
+                    onSelectionChanged: (selection) {
+                      final newShape = selection.first;
+                      ref.read(selectedShapeProvider.notifier).state = newShape;
+                      if (newShape != RouteShape.pointToPoint) {
+                        ref.read(destinationPointProvider.notifier).state = null;
+                      }
+                    },
                   ),
                   if (shape != RouteShape.pointToPoint) ...[
                     const SizedBox(height: 16),
-                    Text('Target distance: ${targetKm.toStringAsFixed(1)} km'),
+                    Text('Target distance: ${targetKm.toStringAsFixed(0)} km'),
                     Slider(
-                      value: targetKm,
-                      min: 2,
-                      max: 60,
-                      divisions: 58,
-                      label: '${targetKm.toStringAsFixed(1)} km',
-                      onChanged: (v) => ref.read(targetDistanceKmProvider.notifier).state = v,
+                      value: targetDistanceStepsKm.indexOf(targetKm).clamp(0, targetDistanceStepsKm.length - 1).toDouble(),
+                      min: 0,
+                      max: (targetDistanceStepsKm.length - 1).toDouble(),
+                      divisions: targetDistanceStepsKm.length - 1,
+                      label: '${targetKm.toStringAsFixed(0)} km',
+                      onChanged: (v) => ref.read(targetDistanceKmProvider.notifier).state =
+                          targetDistanceStepsKm[v.round()],
                     ),
                   ],
                   const SizedBox(height: 16),

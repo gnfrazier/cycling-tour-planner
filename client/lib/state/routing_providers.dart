@@ -22,7 +22,14 @@ final selectedThemeProvider = StateProvider<RouteTheme>((ref) => RouteTheme.flat
 final selectedShapeProvider = StateProvider<RouteShape>((ref) => RouteShape.loop);
 final startPointProvider = StateProvider<LatLon?>((ref) => null);
 final destinationPointProvider = StateProvider<LatLon?>((ref) => null);
-final targetDistanceKmProvider = StateProvider<double>((ref) => 15.0);
+
+/// Target-distance slider steps (PRD FR46): Fibonacci-like growth (each step
+/// ≈ sum of the previous two) from a 10km floor to a 300km/180mi ceiling,
+/// rather than a linear scale — short rides get fine-grained steps, long
+/// tours get coarse ones.
+const targetDistanceStepsKm = <double>[10, 20, 30, 50, 80, 130, 210, 300];
+
+final targetDistanceKmProvider = StateProvider<double>((ref) => 20.0);
 
 class RouteGenerationNotifier extends AsyncNotifier<RouteResult?> {
   @override

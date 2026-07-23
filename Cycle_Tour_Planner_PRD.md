@@ -153,6 +153,7 @@ Four plugin categories:
 |FR6|FastAPI endpoint(s) wrapping the OSMnx routing core, with auto-generated OpenAPI docs|P0|
 |FR34|User sets start point — and optional destination and waypoints — via geocoded location search (online), map tap, or device GPS. This is the entry step before any theme routing runs. Offline, a point can only be set within the bounds of downloaded content; outside those bounds the user is prompted to restore connectivity|P0|
 |FR35|User selects route shape — loop, out-and-back, or point-to-point — independently of the five themes. Any theme works in any shape. Loop is the default. Point-to-point requires a destination|P1|
+|FR46|**Target distance control** (loop/out-and-back only; point-to-point has no target-distance input). A slider sets the desired route distance from a **10km floor to a 300km/180mi ceiling**, stepped on a **Fibonacci-like scale** (each step ≈ sum of the previous two) rather than linearly — fine-grained increments for short rides, coarse increments for long tours|P1|
 |FR43|**Unsatisfiable constraint handling.** When no route satisfies every active constraint at once, the core reports *which* constraints conflict rather than failing or silently dropping one. The client explains the conflict and offers the nearest relaxations (each with its trade-off), or a manual adjust — never a raw error and never a silently-compromised route|P0|
 
 #### Client \& display (P0–P1)

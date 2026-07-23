@@ -21,10 +21,14 @@ def _bbox_from_env() -> BBox:
     if raw:
         west, south, east, north = (float(v) for v in raw.split(","))
         return BBox(west=west, south=south, east=east, north=north)
-    # Default dev bundle: a small area around Marion, NC (PRD's own stated
-    # default start / FR38 region), small enough to fetch quickly from
-    # Overpass for local development.
-    return BBox(west=-82.030, south=35.675, east=-82.000, north=35.700)
+    # Default shipped region: ~80km square around Marion, NC (PRD's own
+    # stated default start / FR38 region) — covers real western-NC riding
+    # terrain (Blue Ridge Parkway, Black Mountain, Lake James, Morganton),
+    # not just enough road network to prove routing works. Comfortably
+    # within the bundled GEDTM30 elevation tile's coverage. Tests and CI
+    # pin CTP_BBOX to a much smaller box so they stay fast and cached —
+    # see tests/conftest.py's TEST_BBOX and desktop-build.yml.
+    return BBox(west=-82.450, south=35.320, east=-81.550, north=36.050)
 
 
 @dataclass

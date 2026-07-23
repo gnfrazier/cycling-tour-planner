@@ -20,9 +20,9 @@ class RouteGenerateRequest(BaseModel):
     theme: Theme
     shape: RouteShape
     end: CoordModel | None = None
-    # Upper bound keeps _node_near_distance's Dijkstra search bounded; 200km
-    # comfortably covers this project's multi-day-tour ambitions (PRD).
-    target_distance_km: float | None = Field(default=None, gt=0, le=200)
+    # Upper bound keeps _node_near_distance's Dijkstra search bounded; matches
+    # the client's FR46 slider ceiling (10km floor, 300km/180mi ceiling).
+    target_distance_km: float | None = Field(default=None, gt=0, le=300)
 
 
 class RouteResponse(BaseModel):

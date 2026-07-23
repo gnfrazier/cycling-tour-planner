@@ -6,12 +6,16 @@ from fastapi.testclient import TestClient
 from ctp_service.app import create_app
 from ctp_service.config import Settings
 
+from .conftest import TEST_BBOX
+
 
 @pytest.fixture(scope="module")
 def client():
-    # Default Settings() bbox/cache match tests/conftest.py's TEST_BBOX, so
-    # this reuses the same warm OSMnx cache the other tests already primed.
-    app = create_app(settings=Settings())
+    # Settings().bbox defaults to the real ~80km shipped region (config.py),
+    # which is too slow to fetch fresh in a test run — pin explicitly to
+    # tests/conftest.py's TEST_BBOX so this reuses the same warm OSMnx cache
+    # the other tests already primed.
+    app = create_app(settings=Settings(bbox=TEST_BBOX))
     with TestClient(app) as test_client:
         deadline = time.time() + 90
         while time.time() < deadline:
@@ -123,7 +127,7 @@ def test_oversized_request_body_is_rejected(client):
 
 
 def test_sidecar_only_routes_are_absent_in_hosted_mode():
-    app = create_app(mode="hosted", settings=Settings())
+    app = create_app(mode="hosted", settings=Settings(bbox=TEST_BBOX))
     with TestClient(app) as hosted_client:
         assert hosted_client.post("/admin/clear-cache").status_code == 404
         assert hosted_client.get("/tiles/1/0/0").status_code == 404
