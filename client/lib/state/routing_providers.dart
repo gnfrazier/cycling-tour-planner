@@ -7,15 +7,18 @@ import '../domain/theme.dart';
 
 final routingClientProvider = Provider<RoutingClient>((ref) => RoutingClient());
 
-/// Polls-once readiness check (Architecture §6.3: health is readiness, not
+/// Polls until ready (Architecture §6.3: health is readiness, not
 /// liveness). The planner screen gates route generation on this.
-final backendReadyProvider = FutureProvider<bool>((ref) async {
+///
+/// FR48: a cold start (first-run graph fetch + elevation enrichment) can
+/// take minutes — that's not a failure, so this polls indefinitely rather
+/// than giving up after a fixed window. The planner screen shows an
+/// escalating cycling-themed message for the duration.
+final backendReadyProvider = FutureProvider<void>((ref) async {
   final client = ref.watch(routingClientProvider);
-  for (var attempt = 0; attempt < 60; attempt++) {
-    if (await client.checkReady()) return true;
+  while (!await client.checkReady()) {
     await Future.delayed(const Duration(seconds: 1));
   }
-  return false;
 });
 
 final selectedThemeProvider = StateProvider<RouteTheme>((ref) => RouteTheme.flattest);

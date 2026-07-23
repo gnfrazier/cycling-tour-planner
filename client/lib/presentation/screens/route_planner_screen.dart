@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -57,23 +58,70 @@ class RoutePlannerScreen extends ConsumerWidget {
         ],
       ),
       body: ready.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const _StartupWait(),
         error: (err, _) => Center(child: Text('Could not reach the routing engine: $err')),
-        data: (isReady) {
-          if (!isReady) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  'Routing engine failed to start. Is the backend running?\n'
-                  '(uv run fastapi dev main.py, from backend/)',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
-          }
-          return const _PlannerBody();
-        },
+        data: (_) => const _PlannerBody(),
+      ),
+    );
+  }
+}
+
+/// FR48: escalating cycling-themed messages while the backend cold-starts,
+/// rather than a bare spinner or a false "failed to start" after a fixed
+/// timeout. Short waits look like ordinary pre-ride prep; long waits shift
+/// to the kind of small mishap that delays an actual ride.
+const _startupMessages = <(int, String)>[
+  (0, 'Filling up bottles…'),
+  (8, 'Airing up the tires…'),
+  (16, 'Lubing the chain…'),
+  (26, 'Double-checking the route sheet…'),
+  (40, 'Digging the good pump out of the garage…'),
+  (60, "Can't find the tire levers…"),
+  (90, 'Untangling the spare tube from the bottom of the toolbox…'),
+  (130, 'Convincing the dog you really are leaving this time…'),
+];
+
+class _StartupWait extends StatefulWidget {
+  const _StartupWait();
+
+  @override
+  State<_StartupWait> createState() => _StartupWaitState();
+}
+
+class _StartupWaitState extends State<_StartupWait> {
+  int _elapsedSeconds = 0;
+  late final Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => setState(() => _elapsedSeconds++),
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final message =
+        _startupMessages.lastWhere((m) => m.$1 <= _elapsedSeconds).$2;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(message, textAlign: TextAlign.center),
+          ],
+        ),
       ),
     );
   }

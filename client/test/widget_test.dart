@@ -11,7 +11,7 @@ void main() {
       ProviderScope(
         overrides: [
           routingClientProvider.overrideWithValue(FakeRoutingClient()),
-          backendReadyProvider.overrideWith((ref) async => true),
+          backendReadyProvider.overrideWith((ref) async {}),
         ],
         child: const CycleTourPlannerApp(),
       ),
