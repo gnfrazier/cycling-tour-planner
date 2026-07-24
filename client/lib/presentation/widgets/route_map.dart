@@ -39,6 +39,33 @@ class _RouteMapState extends ConsumerState<RouteMap> {
     _mapController.move(camera.center, newZoom);
   }
 
+  /// A start/destination set outside the current view (typically via
+  /// geocode search, since a map tap is by definition already visible)
+  /// otherwise leaves the map showing nothing relevant to what was just
+  /// set. Only moves the camera when the new point(s) genuinely aren't
+  /// visible already, so this never fights a user's own pan/zoom.
+  void _ensurePointsVisible() {
+    final start = ref.read(startPointProvider);
+    final destination = ref.read(destinationPointProvider);
+    final points = [
+      if (start != null) ll.LatLng(start.lat, start.lon),
+      if (destination != null) ll.LatLng(destination.lat, destination.lon),
+    ];
+    if (points.isEmpty) return;
+
+    final visible = _mapController.camera.visibleBounds;
+    if (points.length == 1) {
+      if (!visible.contains(points.first)) {
+        _mapController.move(points.first, _mapController.camera.zoom);
+      }
+      return;
+    }
+    final bounds = LatLngBounds.fromPoints(points);
+    if (!visible.containsBounds(bounds)) {
+      _mapController.fitCamera(CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(48)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final client = ref.watch(routingClientProvider);
@@ -46,6 +73,9 @@ class _RouteMapState extends ConsumerState<RouteMap> {
     final start = ref.watch(startPointProvider);
     final destination = ref.watch(destinationPointProvider);
     final shape = ref.watch(selectedShapeProvider);
+
+    ref.listen<domain.LatLon?>(startPointProvider, (_, _) => _ensurePointsVisible());
+    ref.listen<domain.LatLon?>(destinationPointProvider, (_, _) => _ensurePointsVisible());
 
     return Stack(
       children: [
