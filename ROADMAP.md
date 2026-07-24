@@ -10,7 +10,26 @@ Status legend: **Done** · **Now** · **Next** · **Later**
 
 ---
 
+## Leg ↔ Milestone map
+
+**Leg numbers and PRD Milestone (`M#`) numbers are two different sequences — they only happen to line up for Leg 1/Leg 2.** A Leg is this document's own dependency-ordered build package; a Milestone is the PRD's (§8) numbering. **Leg 3 is Milestone 5, not Milestone 3.** Check this table — not the Leg number alone — before pulling a milestone's deliverable list from the PRD, and read each Leg section's own **Milestone(s):** line below for the same reason.
+
+| Leg | Milestone(s) | Status |
+|-----|--------------|--------|
+| Leg 1 | M1, M2 | Done |
+| Leg 2 | M3, M4 | Done, with open gaps |
+| *(Post-MVP hardening — not a numbered leg or milestone)* | between M4 and M5 | Done |
+| **Leg 3** | **M5** | Now |
+| Leg 4 | M6 | Later |
+| Leg 5 | M7 | Later |
+| Leg 6 | M8 | Later |
+| Leg 7 | M9+ | Later |
+
+---
+
 ## Leg 1 — Prove the routing engine (M1 → M2) — *Done*
+
+**Milestone(s): M1, M2**
 
 Confirm OSMnx can actually generate all five MVP themes end to end from a local OSM extract — including the local-first GEDTM30 elevation pipeline two of those themes depend on — then wrap the result behind a typed API. Also lay down two architectural seams the design deliberately front-loads here, before either is needed, because retrofitting them later is far more expensive (PRD §5.1–§5.2, Architecture D9/D10).
 
@@ -33,6 +52,8 @@ Confirm OSMnx can actually generate all five MVP themes end to end from a local 
 ---
 
 ## Leg 2 — Ship the desktop MVP (M3 → M4) — *Done, with open gaps*
+
+**Milestone(s): M3, M4**
 
 Get a route Greg would actually ride out of the system end to end — rendered in a real client over self-hosted tiles, with a real start/destination entry step, a populated app on first open with zero downloads, and exported in every format RideWithGPS and a bike computer expect.
 
@@ -62,6 +83,8 @@ Get a route Greg would actually ride out of the system end to end — rendered i
 
 ## Post-MVP hardening (M1–M4 → Leg 3) — *Done*
 
+**Milestone(s): none — sits between M4 and M5, not itself a numbered PRD milestone**
+
 Between the initial M1–M4 build and starting Leg 3, the app went through a QA/hardening pass rather than moving straight to new PRD scope. Not itself a numbered PRD leg, but real work that gated starting Leg 3 on a stable base — now closed out.
 
 **Shipped**
@@ -79,14 +102,18 @@ Between the initial M1–M4 build and starting Leg 3, the app went through a QA/
 
 ## Leg 3 — Multi-day trip logistics (M5) — *Now*
 
-Turn one route into a real multi-day tour: waypoints a route must honor, daily mileage/elevation splitting, surface control, sliding-scale weighting, and the lodging and historical-weather context a tour planner needs to book stays.
+**Milestone(s): M5**
 
-**Deliverables**
+Turn one route into a real multi-day tour: waypoints a route must honor, daily mileage/elevation splitting, surface control, sliding-scale weighting, route alternatives, group-size awareness, and the lodging and historical-weather context a tour planner needs to book stays.
+
+**Deliverables** (matches the PRD's own M5 row, §8 — previously this list silently dropped FR42/FR46, which the PRD's milestone table includes; restored here, ordered by build dependency rather than the PRD's listing order)
 - FR10 — Waypoints / checkpoints
 - FR11 — Daily mileage & elevation splitting
 - FR12 — Surface-type scoring
 - FR13 — Tour / day / partial-day sliding-scale weighting (elevation, surface)
+- FR42 — Route alternatives & variants (a scoped re-route proposed via FR13, shown ghost-vs-bold alongside the current route; depends on FR13 existing first)
 - FR14 — Lodging & campground data (OSM tags — resolved, no dedicated data source needed)
+- FR46 — Group-size-aware planning (rider-band informs lodging/campground sizing from FR14, road-width/regroup cautions, and seeds day mileage/climb defaults that FR13 can still override)
 - FR15 — **Historical Weather** only at this leg (seasonal norms via Open-Meteo), Desktop first. Weather Forecast (10-day/hourly) ships later, at M7, across all clients simultaneously
 
 **Learning goal:** Exercise Leg 1's `weights.at(position)` seam for real — resolve tour-default vs. day-override vs. segment-override profiles per edge. Because that lookup was built at M1 returning a constant, this is a change to one function, not a new solver (Architecture §5.5). Weather provider is resolved as Open-Meteo (no longer an open question).
@@ -94,6 +121,8 @@ Turn one route into a real multi-day tour: waypoints a route must honor, daily m
 ---
 
 ## Leg 4 — Accounts, sync & Web (M6) — *Later*
+
+**Milestone(s): M6**
 
 Stand up the one part of the stack that's deliberately server-backed: passkey accounts, a Flutter Web client at close-to-Desktop planning parity, cross-device sync with no silent overwrites, a fully unauthenticated Guest Rider path, and the shared elevation/tile cache that retires the MVP's disposable per-device OpenTopography calls.
 
@@ -114,13 +143,16 @@ Stand up the one part of the stack that's deliberately server-backed: passkey ac
 
 ## Leg 5 — Mobile & offline (M7) — *Later*
 
-Take the whole thing on the road: Android/iOS builds with real offline use, and the live Weather Forecast retrofitted onto every client that shipped before it. This leg is gated by the single largest open technical risk in the project.
+**Milestone(s): M7**
 
-**Deliverables**
+Take the whole thing on the road: Android/iOS builds with real offline use, in-ride live navigation, and the live Weather Forecast retrofitted onto every client that shipped before it. This leg is gated by the single largest open technical risk in the project.
+
+**Deliverables** (matches the PRD's own M7 row, §8 — previously this list silently dropped FR45, which the PRD's milestone table includes; restored here)
 - FR17 — Android / iOS builds (feature parity for offline trips)
 - FR16 — Offline trip download (map + route + content)
 - FR15 — Weather Forecast (10-day/hourly) — ships on Mobile, Desktop, and Web (including Guest Rider) simultaneously
 - FR39 — Local data pruning, Mobile half (Desktop half shipped at M3)
+- FR45 — In-ride live navigation: next-maneuver/upcoming-waypoint/climb readout, cue sheet usable by mileage alone, and graceful GPS-loss degradation (map freezes at last-known position, states the loss once, passively)
 - **Resolve the iOS sidecar strategy** (Architecture §4.1, A1 — HIGH severity): iOS forbids the child-process model Android validated at M3. Pick one of three named options before this leg starts: an iOS-only embedded interpreter, iOS-online-only (like Web, breaking the offline guarantee on that one platform), or precompute-and-download (route generated elsewhere, offline use covers *viewing/following*, not on-device generation)
 
 **Learning goal:** Power-efficient background GPS/CPU/network use on mobile, with a stated (if still coarse) acceptance bar — runs without errors or crashes while the device's OS-level power-saving mode is active; the offline-first UX pattern (persistent, unobtrusive connectivity indicator, no feature silently failing, stale-forecast age stamping) rather than treating offline as a degraded error state.
@@ -128,6 +160,8 @@ Take the whole thing on the road: Android/iOS builds with real offline use, and 
 ---
 
 ## Leg 6 — Content layer (M8) — *Later*
+
+**Milestone(s): M8**
 
 Round out the riding experience once the core planning and trip-management flows are solid.
 
@@ -142,6 +176,8 @@ Round out the riding experience once the core planning and trip-management flows
 ---
 
 ## Leg 7 — Plugins (M9+) — *Later*
+
+**Milestone(s): M9+**
 
 Stand up the plugin architecture, then take up individual plugins as each becomes worth building. Two runtimes, not one: output/integration plugins run Flutter-side holding their own OAuth tokens; data-provider plugins run Python-side against `ctp-core`'s provider interfaces built at M1 (Architecture §10).
 
@@ -161,13 +197,13 @@ Stand up the plugin architecture, then take up individual plugins as each become
 
 Pulled from the PRD's risk register (§7) and open questions (§9), and the Architecture doc's risks (§11) and open questions (§13) — unresolved items that should be settled before, not during, the leg they gate.
 
-- **Gates Leg 1:** Resolved — the elevation and POI-tag pipelines proved out within M1, and the `ctp-core`/FastAPI boundary held through the security-review pass.
-- **Gates Leg 2:** The packaging decision is resolved (PyInstaller, `--onedir`, CI-smoke-tested); whether the sidecar ships inside the installer vs. downloads on first run (Architecture §13 Q3) is still open. The concrete per-trip tile-generation tool (`tilemaker` → MBTiles vs. an alternative) is **not** needed yet — FR38 ships fixed whole regions, not per-trip bbox generation, so that question is still deferred to Leg 4/M6. The post-MVP hardening pass is closed out, but FR8/FR43/FR44 — real M3 deliverables, not stretch goals — remain unbuilt; still worth an explicit, tracked decision (build before Leg 3, or formally defer) rather than leaving them implicitly open.
-- **Gates Leg 3:** Largely de-risked already: weather (Open-Meteo) and lodging (OSM tags) are resolved, not open questions, and FR13's position-varying weighting rides the seam built at M1. No major gating item remains here.
-- **Gates Leg 4:** Flutter passkey-plugin maturity is uneven between desktop and mobile — the PRD's mitigation is to spike passkey auth early, before M5, not to discover the gap at M6. Also unresolved before M6's Web work starts: verify the cross-site cookie CORS allowlist is strict (never a wildcard) before shipping, and treat "one Render instance" as a hard deployment invariant for the rate limiter — the redesign trigger is a second instance existing, not abuse being observed (Architecture A4).
-- **Gates Leg 5:** **The single largest open technical risk in the project** — iOS cannot spawn the sidecar the way Android does (Architecture §4.1, A1, HIGH severity). Three named options exist; none is chosen. Do not let iOS's constraint get discovered late — the Android prototype at M3 is meant to surface everything *except* this platform-specific gap early, leaving iOS as the one deliberately deferred decision.
-- **Gates Leg 6:** FR23, FR29, FR40, and FR41 all lack an explicit milestone assignment in the PRD's own milestone table (§8) despite being scoped functional requirements — confirm intended placement (this leg vs. folded into M6's account work for FR40/FR41) before treating the provisional grouping above as final.
-- **Gates Leg 7:** Whether a paid plugin (FR33) is pursued at all sits in tension with §3.4's no-monetization-of-the-core stance — the plugin model is the proposed-but-unconfirmed resolution. FR27/FR28's shared paid Street View Static API dependency needs an open-alternative check (Mapillary) before scoping. Also open and unblocking until M9: whether the plugin model needs a formal interface/SDK spec or the first plugin defines it by example; which indoor ride simulators (Zwift, TrainerRoad, RGT, others) are actually in scope; and plugin distribution mechanics (pub.dev + PyPI vs. a bundled registry — Architecture §13 Q5).
+- **Gates Leg 1 (M1, M2):** Resolved — the elevation and POI-tag pipelines proved out within M1, and the `ctp-core`/FastAPI boundary held through the security-review pass.
+- **Gates Leg 2 (M3, M4):** The packaging decision is resolved (PyInstaller, `--onedir`, CI-smoke-tested); whether the sidecar ships inside the installer vs. downloads on first run (Architecture §13 Q3) is still open. The concrete per-trip tile-generation tool (`tilemaker` → MBTiles vs. an alternative) is **not** needed yet — FR38 ships fixed whole regions, not per-trip bbox generation, so that question is still deferred to Leg 4/M6. The post-MVP hardening pass is closed out, but FR8/FR43/FR44 — real M3 deliverables, not stretch goals — remain unbuilt; still worth an explicit, tracked decision (build before Leg 3, or formally defer) rather than leaving them implicitly open.
+- **Gates Leg 3 (M5):** Largely de-risked already: weather (Open-Meteo) and lodging (OSM tags) are resolved, not open questions, and FR13's position-varying weighting rides the seam built at M1. FR42 (route alternatives) has an in-leg dependency, not an external gate — it needs FR13 built first, so sequence it after. No major external gating item remains here.
+- **Gates Leg 4 (M6):** Flutter passkey-plugin maturity is uneven between desktop and mobile — the PRD's mitigation is to spike passkey auth early, before M5, not to discover the gap at M6. Also unresolved before M6's Web work starts: verify the cross-site cookie CORS allowlist is strict (never a wildcard) before shipping, and treat "one Render instance" as a hard deployment invariant for the rate limiter — the redesign trigger is a second instance existing, not abuse being observed (Architecture A4).
+- **Gates Leg 5 (M7):** **The single largest open technical risk in the project** — iOS cannot spawn the sidecar the way Android does (Architecture §4.1, A1, HIGH severity). Three named options exist; none is chosen. Do not let iOS's constraint get discovered late — the Android prototype at M3 is meant to surface everything *except* this platform-specific gap early, leaving iOS as the one deliberately deferred decision. FR45 (in-ride live navigation) additionally depends on FR44's cue sheet, already shipped at M3.
+- **Gates Leg 6 (M8):** FR23, FR29, FR40, and FR41 all lack an explicit milestone assignment in the PRD's own milestone table (§8) despite being scoped functional requirements — confirm intended placement (this leg vs. folded into M6's account work for FR40/FR41) before treating the provisional grouping above as final.
+- **Gates Leg 7 (M9+):** Whether a paid plugin (FR33) is pursued at all sits in tension with §3.4's no-monetization-of-the-core stance — the plugin model is the proposed-but-unconfirmed resolution. FR27/FR28's shared paid Street View Static API dependency needs an open-alternative check (Mapillary) before scoping. Also open and unblocking until M9: whether the plugin model needs a formal interface/SDK spec or the first plugin defines it by example; which indoor ride simulators (Zwift, TrainerRoad, RGT, others) are actually in scope; and plugin distribution mechanics (pub.dev + PyPI vs. a bundled registry — Architecture §13 Q5).
 
 ---
 
