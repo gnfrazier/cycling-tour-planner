@@ -26,7 +26,7 @@ final selectedShapeProvider = StateProvider<RouteShape>((ref) => RouteShape.loop
 final startPointProvider = StateProvider<LatLon?>((ref) => null);
 final destinationPointProvider = StateProvider<LatLon?>((ref) => null);
 
-/// Target-distance slider steps (PRD FR46): Fibonacci-like growth (each step
+/// Target-distance slider steps (PRD FR47): Fibonacci-like growth (each step
 /// ≈ sum of the previous two) from a 10km floor to a 300km/180mi ceiling,
 /// rather than a linear scale — short rides get fine-grained steps, long
 /// tours get coarse ones.
@@ -61,7 +61,7 @@ class RouteGenerationNotifier extends AsyncNotifier<RouteResult?> {
         end: shape == RouteShape.pointToPoint ? end : null,
         theme: theme,
         shape: shape,
-        targetDistanceKm: shape == RouteShape.pointToPoint ? null : ref.read(targetDistanceKmProvider),
+        targetDistanceKm: ref.read(targetDistanceKmProvider),
       ),
     );
   }

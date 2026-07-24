@@ -73,13 +73,14 @@ Both Linux and Windows are supported — the client, and the CI in
 
 ### Troubleshooting (Windows): Smart App Control blocks `uv.exe`
 
-If `uv run ...` fails with *"An Application Control policy has blocked this file"*, that's Windows 11's **Smart App Control** (SAC) — it only allows apps it considers signed and reputable, and a freshly-installed CLI tool often hasn't cleared that bar yet, especially when installed via the `irm | iex` script rather than a package manager. Try, in order:
+If `uv run ...` fails with *"An Application Control policy has blocked this file"*, that's Windows 11's **Smart App Control** (SAC) — it only allows apps it considers signed and reputable. This isn't a "hasn't built up reputation yet" problem: `uv`'s Windows binaries are not currently Authenticode-signed upstream at all (see [astral-sh/uv#18967](https://github.com/astral-sh/uv/issues/18967) and [astral-sh/uv#10336](https://github.com/astral-sh/uv/issues/10336)), so **switching to winget often does not clear this particular block** — winget improves where the file came from, not whether the binary itself is signed, which is what SAC actually checks. Consumer Windows also has no per-app "allow this one" exception for SAC (unlike SmartScreen) — it's an on/off policy for unsigned apps. Try, in order:
 
-1. Reinstall via winget instead of the script installer, then retry: `winget install astral-sh.uv`. Winget packages carry a stronger reputation/signing chain and this alone often clears the block.
-2. Check Windows Security for an explicit allow prompt: Settings → Privacy & security → Windows Security → App & browser control → look for the blocked-app entry and an "Allow on device" action.
-3. Only if neither works, turn off Smart App Control: Settings → Privacy & security → Windows Security → App & browser control → Smart App Control → Off. **This is one-way** — once off, it only comes back via a clean Windows reinstall, not a re-toggle — so don't reach for it first.
+1. Confirm it's actually SAC and not something else: Event Viewer → Applications and Services Logs → Microsoft → Windows → CodeIntegrity → Operational will show the specific blocked file and policy.
+2. Reinstall via winget anyway (`winget install astral-sh.uv`) — it sometimes still helps for other blocked tools, just not reliably for uv given the signing gap above.
+3. **Recommended**: run the backend inside WSL2 instead of native Windows, and leave everything else unchanged. Install WSL2 (Ubuntu) if you don't have it, then follow the Linux/macOS backend steps above verbatim from inside the WSL shell. Keep running the Flutter client natively on Windows (`flutter run -d windows`) pointed at the default `http://127.0.0.1:8000` — WSL2 forwards localhost to Windows automatically, so the client needs no changes. This sidesteps needing a native `uv.exe` at all, with Smart App Control left fully on.
+4. Only as a last resort, turn off Smart App Control: Settings → Privacy & security → Windows Security → App & browser control → Smart App Control → Off. **This is one-way** — once off, it only comes back via a clean Windows reinstall, not a re-toggle — so don't reach for it first.
 
-The same policy can later block other unsigned binaries this project produces, like the PyInstaller-frozen `ctp-service` sidecar — same fix order applies.
+This section is about the third-party `uv` tool's own signing gap. Whether *this project's* frozen `ctp-service` sidecar and installer get signed is a separate, not-yet-decided question — see the open questions in `ARCHITECTURE.md` §13 and the Leg 2 gate in `ROADMAP.md`. The same SAC policy can block that unsigned frozen binary too once it exists; the fix order above still applies, minus the WSL escape hatch (the sidecar has to run on the target OS).
 
 ### 1. Start the backend
 

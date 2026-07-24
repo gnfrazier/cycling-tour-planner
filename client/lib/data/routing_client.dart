@@ -65,12 +65,17 @@ class RoutingClient {
     required RouteShape shape,
     double? targetDistanceKm,
   }) async {
+    // Point-to-point never takes a target distance (routing.py's
+    // point_to_point branch doesn't read it) — enforced here at the wire
+    // boundary so it can't be reintroduced by a future caller forgetting to
+    // null it out itself.
+    final effectiveTargetDistanceKm = shape == RouteShape.pointToPoint ? null : targetDistanceKm;
     final payload = <String, dynamic>{
       'start': start.toJson(),
       'theme': theme.apiValue,
       'shape': shape.apiValue,
       if (end != null) 'end': end.toJson(),
-      if (targetDistanceKm != null) 'target_distance_km': targetDistanceKm,
+      'target_distance_km': ?effectiveTargetDistanceKm,
     };
 
     final resp = await _http.post(

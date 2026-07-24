@@ -38,6 +38,18 @@ Future<void> _exportRoute(
   }
 }
 
+/// FR49 — reverts every planning control to its declared default and clears
+/// any generated route, so the rider can back out of an in-progress plan
+/// without individually re-toggling each control.
+void _resetControls(WidgetRef ref) {
+  ref.read(selectedThemeProvider.notifier).state = RouteTheme.flattest;
+  ref.read(selectedShapeProvider.notifier).state = RouteShape.loop;
+  ref.read(startPointProvider.notifier).state = null;
+  ref.read(destinationPointProvider.notifier).state = null;
+  ref.read(targetDistanceKmProvider.notifier).state = 20.0;
+  ref.read(routeGenerationProvider.notifier).clear();
+}
+
 class RoutePlannerScreen extends ConsumerWidget {
   const RoutePlannerScreen({super.key});
 
@@ -185,11 +197,22 @@ class _PlannerBody extends ConsumerWidget {
                   const SizedBox(height: 8),
                   const ThemePicker(),
                   const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: routeAsync.isLoading
-                        ? null
-                        : () => ref.read(routeGenerationProvider.notifier).generate(),
-                    child: Text(routeAsync.isLoading ? 'Generating…' : 'Generate route'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton(
+                        onPressed: routeAsync.isLoading
+                            ? null
+                            : () => ref.read(routeGenerationProvider.notifier).generate(),
+                        child: Text(routeAsync.isLoading ? 'Generating…' : 'Generate route'),
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.restart_alt),
+                        label: const Text('Reset'),
+                        onPressed: () => _resetControls(ref),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   routeAsync.when(

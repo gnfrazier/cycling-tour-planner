@@ -52,6 +52,16 @@ class _GeocodeSearchFieldState extends ConsumerState<GeocodeSearchField> {
 
   @override
   Widget build(BuildContext context) {
+    final provider = widget.target == SearchTarget.start ? startPointProvider : destinationPointProvider;
+    // Keeps the visible search text in sync when the bound point is cleared
+    // from elsewhere (shape-change-clears-destination, or the reset action) —
+    // otherwise the pin disappears but the typed address stays, which reads
+    // as a half-reset.
+    ref.listen<LatLon?>(provider, (previous, next) {
+      if (next == null) {
+        _controller.clear();
+      }
+    });
     return TextField(
       controller: _controller,
       decoration: InputDecoration(
