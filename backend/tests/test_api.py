@@ -116,6 +116,25 @@ def test_generate_route_rejects_absurd_target_distance(client):
     assert resp.status_code == 422
 
 
+def test_generate_route_rejects_start_outside_bbox(client):
+    payload = {"start": {"lat": 36.5, "lon": -83.0}, "theme": "flattest", "shape": "loop", "target_distance_km": 4.0}
+    resp = client.post("/routes/generate", json=payload)
+    assert resp.status_code == 400
+    assert "outside" in resp.json()["detail"]
+
+
+def test_generate_route_rejects_destination_outside_bbox(client):
+    payload = {
+        "start": {"lat": 35.6841, "lon": -82.0091},
+        "end": {"lat": 36.5, "lon": -83.0},
+        "theme": "flattest",
+        "shape": "point_to_point",
+    }
+    resp = client.post("/routes/generate", json=payload)
+    assert resp.status_code == 400
+    assert "outside" in resp.json()["detail"]
+
+
 def test_oversized_request_body_is_rejected(client):
     oversized = b'{"pad": "' + b"a" * 2_000_000 + b'"}'
     resp = client.post(

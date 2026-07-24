@@ -1,16 +1,16 @@
 # Cycle Tour Planner — Product Roadmap
 
-**Source:** `Cycle_Tour_Planner_PRD.md` v2.0 + `ARCHITECTURE.md` v1.0
-**As of:** 2026-07-13 — scaffolding only (FastAPI health-check stub, default Flutter counter app); no FR work started
+**Source:** `Cycle_Tour_Planner_PRD.md` v2.1 + `ARCHITECTURE.md` v1.0
+**As of:** 2026-07-23 — MVP built (M1→M4: routing core, FastAPI, Desktop client, export), with a known gap list (below) against the PRD's full M3 deliverable set. Post-MVP hardening is underway: a security review pass, initial bug fixes, the startup-wait UX (FR48), and an active QA pass on route-generation correctness
 **Sequencing:** by dependency, not calendar date (solo project, PRD §8)
 
 A local-first route planner that generates rides around a theme — flattest, most climbing, lowest traffic, fewest turns, most art & history — not a segment feed. Desktop and Mobile run the routing core *on the device* inside a local sidecar process (`ctp-service` wrapping `ctp-core`); Web is a deliberate, stated exception that always computes server-side on Render. This is the build order.
 
-Status legend: **Now** · **Next** · **Later**
+Status legend: **Done** · **Now** · **Next** · **Later**
 
 ---
 
-## Leg 1 — Prove the routing engine (M1 → M2) — *Now*
+## Leg 1 — Prove the routing engine (M1 → M2) — *Done*
 
 Confirm OSMnx can actually generate all five MVP themes end to end from a local OSM extract — including the local-first GEDTM30 elevation pipeline two of those themes depend on — then wrap the result behind a typed API. Also lay down two architectural seams the design deliberately front-loads here, before either is needed, because retrofitting them later is far more expensive (PRD §5.1–§5.2, Architecture D9/D10).
 
@@ -32,27 +32,52 @@ Confirm OSMnx can actually generate all five MVP themes end to end from a local 
 
 ---
 
-## Leg 2 — Ship the desktop MVP (M3 → M4) — *Next*
+## Leg 2 — Ship the desktop MVP (M3 → M4) — *Done, with open gaps*
 
 Get a route Greg would actually ride out of the system end to end — rendered in a real client over self-hosted tiles, with a real start/destination entry step, a populated app on first open with zero downloads, and exported in every format RideWithGPS and a bike computer expect.
 
-**Deliverables**
+**Deliverables shipped**
 - FR7 — Route rendering (Desktop)
-- FR8 — Toggleable OSM layers, keyed to size class (large/fullscreen vs. compact/phone), derived from viewport at runtime
-- FR34 — Start point / destination / waypoint entry (geocoded search via OSMnx's own `geocoder.geocode()` wrapper over Nominatim, map tap, or GPS)
+- FR34 — Start point / destination entry (geocoded search via OSMnx's own `geocoder.geocode()` wrapper over Nominatim, or map tap)
 - FR35 — Route shape selection — loop (default) / out-and-back / point-to-point
-- FR38 — First-start region download: user picks **North Carolina, Wisconsin, or Southern California**, fetched directly from OpenTopography. Explicitly disposable MVP stopgap, superseded at M6
-- FR39 — Local data pruning (Desktop half; Mobile half ships at M7)
+- FR39 — Local data pruning, Desktop half (North Carolina only — see gap below)
 - FR9 — GPX, TCX, and FIT export
-- **Prototype the local sidecar on Android** (Architecture §4.1, A1): validates that the frozen-binary child-process model (Option C, chosen over a Dart rewrite or an embedded interpreter) actually works before iOS's much harder constraint has to be faced at M7
+- FR47 — Target distance control (Fibonacci-stepped slider, 10km–300km/180mi), added post-initial-build
+- FR48 — Routing-engine startup wait: escalating cycling-themed messaging instead of a fixed-timeout hard failure, added post-initial-build
+- Packaging decision resolved: **PyInstaller**, sidecar built `--onedir` and smoke-tested in CI (`.github/workflows/desktop-build.yml`) — the gating question below is settled, not open
 
-**Learning goal:** `flutter_map` over self-hosted tiles generated from local OSM extracts — not a proprietary maps SDK or hosted tile endpoint; the routing core shipped as a standalone frozen binary (PyInstaller/Nuitka) launched as a loopback-bound child process, so the Flutter client's `RoutingClient` speaks one HTTP transport regardless of platform; geocoding resolved as OSMnx's built-in Nominatim wrapper, no self-hosted Nominatim/Photon instance needed.
+**Known gaps against the PRD's full M3 list** (MVP's own success criterion — flattest route exports and opens in RideWithGPS — is met; these are real, still-open deliverables, not polish)
+- FR8 — Toggleable OSM layers not built. The map currently renders one fixed layer set (tiles, route line, markers), no per-category visibility control
+- FR38 — First-start region download is North Carolina only; Wisconsin and Southern California show as "coming soon" placeholders (`manage_data_screen.dart`), not wired to live OpenTopography downloads
+- FR43 — Unsatisfiable-constraint explanation not built
+- FR44 — Turn-by-turn cue sheet not built
+- **Prototype the local sidecar on Android** (Architecture §4.1, A1) — not yet started; still needed before iOS's harder constraint is faced at M7
+
+**Learning goal:** `flutter_map` over self-hosted tiles generated from local OSM extracts — not a proprietary maps SDK or hosted tile endpoint; the routing core shipped as a standalone frozen binary (PyInstaller) launched as a loopback-bound child process, so the Flutter client's `RoutingClient` speaks one HTTP transport regardless of platform; geocoding resolved as OSMnx's built-in Nominatim wrapper, no self-hosted Nominatim/Photon instance needed.
 
 **Milestone:** MVP complete at M4 — success criterion: the flattest-theme route exports cleanly as GPX, TCX, and FIT and opens without error in RideWithGPS.
 
 ---
 
-## Leg 3 — Multi-day trip logistics (M5) — *Later*
+## Post-MVP hardening (current) — *Now*
+
+Between the initial M1–M4 build and starting Leg 3, the app is going through a QA/hardening pass rather than moving straight to new PRD scope. Not itself a numbered PRD leg, but real work gating whether Leg 3 starts on a stable base.
+
+**Shipped**
+- Security review pass: sidecar-only route gating enforced at registration (not just guarded), tile proxy given a timeout/bounds check, route-generation inputs bounded (lat/lon/target-distance), request body size cap
+- Initial bug fixes: default bounding box was too small, map had no zoom controls, destination point wasn't clearing on shape re-selection
+- FR48 startup-wait UX (see Leg 2)
+
+**In progress — QA pass on route-generation correctness** (tracked against a hand-testing pass over real Marion→Blowing Rock, NC terrain)
+- Fixed: loop routes degenerating into a visual out-and-back (return leg now avoids retracing the outbound leg when a genuine alternative road exists, `ctp_core/routing.py`)
+- Fixed: theme had no effect on loop/out-and-back route selection (the turnaround-node search was theme-blind; it now picks the theme-cheapest node within a distance band instead of always the same node)
+- Fixed: route polylines and exports were straightened between intersections, understating curvy-road distance (`_path_geometry` now follows each edge's real OSM geometry instead of just its endpoints)
+- Fixed: a start/destination outside the served bounding box silently snapped to the nearest in-bounds node instead of erroring
+- Remaining: a "reset all controls to default" action (new requirement, not yet a numbered FR — needs a PRD entry before implementation, per this project's usual process) and a small client-side cleanup so point-to-point requests can never pick up a stray target-distance value
+
+---
+
+## Leg 3 — Multi-day trip logistics (M5) — *Next*
 
 Turn one route into a real multi-day tour: waypoints a route must honor, daily mileage/elevation splitting, surface control, sliding-scale weighting, and the lodging and historical-weather context a tour planner needs to book stays.
 
@@ -136,8 +161,8 @@ Stand up the plugin architecture, then take up individual plugins as each become
 
 Pulled from the PRD's risk register (§7) and open questions (§9), and the Architecture doc's risks (§11) and open questions (§13) — unresolved items that should be settled before, not during, the leg they gate.
 
-- **Gates Leg 1:** OSM elevation and art/history tags may be too sparse or inconsistent for reliable multi-factor weighting — validate the GEDTM30 elevation pipeline and POI-tag scoring within M1 itself, before the API/client layers depend on them. Also: enforce `ctp-core`'s no-`fastapi`-import rule as a CI check from the first commit, not a review convention (Architecture A5) — the two-deployment model (sidecar + Render) depends on the core never drifting web-aware.
-- **Gates Leg 2:** Two frozen-binary decisions are needed by M3: the packaging tool (PyInstaller vs. Nuitka vs. platform-specific — affects size and startup time) and whether the sidecar ships inside the installer or downloads on first run (Architecture §13 Q3/Q4). The concrete per-trip tile-generation tool (`tilemaker` → MBTiles vs. an alternative) is **not** needed yet — FR38 ships three fixed whole regions, not per-trip bbox generation, so that question is deferred to Leg 4/M6.
+- **Gates Leg 1:** Resolved — the elevation and POI-tag pipelines proved out within M1, and the `ctp-core`/FastAPI boundary held through the security-review pass.
+- **Gates Leg 2:** The packaging decision is resolved (PyInstaller, `--onedir`, CI-smoke-tested); whether the sidecar ships inside the installer vs. downloads on first run (Architecture §13 Q3) is still open. The concrete per-trip tile-generation tool (`tilemaker` → MBTiles vs. an alternative) is **not** needed yet — FR38 ships fixed whole regions, not per-trip bbox generation, so that question is still deferred to Leg 4/M6. New before Leg 3 starts in earnest: close out the post-MVP hardening pass above (particularly FR8/FR43/FR44, which are real M3 deliverables, not stretch goals) or make an explicit, tracked decision to defer them past Leg 3.
 - **Gates Leg 3:** Largely de-risked already: weather (Open-Meteo) and lodging (OSM tags) are resolved, not open questions, and FR13's position-varying weighting rides the seam built at M1. No major gating item remains here.
 - **Gates Leg 4:** Flutter passkey-plugin maturity is uneven between desktop and mobile — the PRD's mitigation is to spike passkey auth early, before M5, not to discover the gap at M6. Also unresolved before M6's Web work starts: verify the cross-site cookie CORS allowlist is strict (never a wildcard) before shipping, and treat "one Render instance" as a hard deployment invariant for the rate limiter — the redesign trigger is a second instance existing, not abuse being observed (Architecture A4).
 - **Gates Leg 5:** **The single largest open technical risk in the project** — iOS cannot spawn the sidecar the way Android does (Architecture §4.1, A1, HIGH severity). Three named options exist; none is chosen. Do not let iOS's constraint get discovered late — the Android prototype at M3 is meant to surface everything *except* this platform-specific gap early, leaving iOS as the one deliberately deferred decision.
@@ -146,4 +171,4 @@ Pulled from the PRD's risk register (§7) and open questions (§9), and the Arch
 
 ---
 
-*Cycle Tour Planner — personal, local-first, solo learning project. Generated from `Cycle_Tour_Planner_PRD.md` v2.0 §3–§9 and `ARCHITECTURE.md` v1.0 §2–§13.*
+*Cycle Tour Planner — personal, local-first, solo learning project. Generated from `Cycle_Tour_Planner_PRD.md` v2.1 §3–§9 and `ARCHITECTURE.md` v1.0 §2–§13.*

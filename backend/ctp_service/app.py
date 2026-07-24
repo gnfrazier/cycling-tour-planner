@@ -28,7 +28,7 @@ from ctp_core.graph import build_graph
 from ctp_core.providers import OsmArtHistoryProvider
 from ctp_core.routing import solve_route
 from ctp_core.scoring import THEME_PROFILES, WeightSchedule, score_edges
-from ctp_core.types import ExportFormat, Graph, Route
+from ctp_core.types import BBox, Coord, ExportFormat, Graph, Route
 
 from .config import Settings
 from .schemas import GeocodeResponse, HealthResponse, RouteGenerateRequest, RouteResponse
@@ -70,6 +70,20 @@ class MaxBodySizeMiddleware:
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
+
+
+def _require_in_bbox(coord: Coord, bbox: BBox, label: str) -> None:
+    """Rejects a start/end coordinate outside the served region instead of
+    letting `_nearest_node` silently snap it to whatever graph node happens
+    to be closest, however far outside the graph's real extent that is."""
+    if not (bbox.west <= coord.lon <= bbox.east and bbox.south <= coord.lat <= bbox.north):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{label} point ({coord.lat}, {coord.lon}) is outside the served region "
+                f"(west={bbox.west}, south={bbox.south}, east={bbox.east}, north={bbox.north})"
+            ),
+        )
 
 
 def _build_base_graph(settings: Settings) -> Graph:
@@ -136,6 +150,10 @@ def _register_common_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=503, detail="routing engine still starting up")
 
         settings: Settings = app.state.settings
+        _require_in_bbox(req.start.to_coord(), settings.bbox, "start")
+        if req.end is not None:
+            _require_in_bbox(req.end.to_coord(), settings.bbox, "destination")
+
         schedule = WeightSchedule(THEME_PROFILES[req.theme])
 
         def _solve() -> Route:
