@@ -71,6 +71,16 @@ Both Linux and Windows are supported — the client, and the CI in
     toggle it on) — Flutter's plugin system symlinks on Windows, and creating
     symlinks without it requires admin privileges
 
+### Troubleshooting (Windows): Smart App Control blocks `uv.exe`
+
+If `uv run ...` fails with *"An Application Control policy has blocked this file"*, that's Windows 11's **Smart App Control** (SAC) — it only allows apps it considers signed and reputable, and a freshly-installed CLI tool often hasn't cleared that bar yet, especially when installed via the `irm | iex` script rather than a package manager. Try, in order:
+
+1. Reinstall via winget instead of the script installer, then retry: `winget install astral-sh.uv`. Winget packages carry a stronger reputation/signing chain and this alone often clears the block.
+2. Check Windows Security for an explicit allow prompt: Settings → Privacy & security → Windows Security → App & browser control → look for the blocked-app entry and an "Allow on device" action.
+3. Only if neither works, turn off Smart App Control: Settings → Privacy & security → Windows Security → App & browser control → Smart App Control → Off. **This is one-way** — once off, it only comes back via a clean Windows reinstall, not a re-toggle — so don't reach for it first.
+
+The same policy can later block other unsigned binaries this project produces, like the PyInstaller-frozen `ctp-service` sidecar — same fix order applies.
+
 ### 1. Start the backend
 
 **Linux/macOS (bash):**
