@@ -76,8 +76,10 @@ class _GeocodeSearchFieldState extends ConsumerState<GeocodeSearchField> {
       if (next == null) {
         // Cleared from elsewhere (shape-change-clears-destination, or the
         // reset action) — otherwise the pin disappears but the typed
-        // address stays, which reads as a half-reset.
+        // address (or a stale failed-search error label) stays, which
+        // reads as a half-reset.
         _controller.clear();
+        if (_error != null) setState(() => _error = null);
         return;
       }
       if (_settingFromSelf) {

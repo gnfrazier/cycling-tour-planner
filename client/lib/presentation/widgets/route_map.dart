@@ -6,15 +6,7 @@ import 'package:latlong2/latlong.dart' as ll;
 import '../../domain/route.dart' as domain;
 import '../../domain/theme.dart';
 import '../../state/routing_providers.dart';
-
-/// Brand Guide routing-theme swatches (Brand Guide.md "Routing Theme Semantics").
-const _themeColors = <RouteTheme, Color>{
-  RouteTheme.flattest: Color(0xFF1E5E60), // River Valley Teal
-  RouteTheme.mostClimbing: Color(0xFFB85A38), // Ridge Line Terracotta
-  RouteTheme.lowestTraffic: Color(0xFF2D5236), // Serene Forest Green
-  RouteTheme.fewestTurns: Color(0xFF2E5B88), // Linear Horizon Blue
-  RouteTheme.mostArt: Color(0xFF722F37), // Curated Burgundy
-};
+import '../theme_colors.dart';
 
 // Matches the sidecar's /tiles/{z}/{x}/{y} bounds check (ctp_service/app.py).
 const _minZoom = 1.0;
@@ -103,7 +95,7 @@ class _RouteMapState extends ConsumerState<RouteMap> {
                   Polyline(
                     points: route.coords.map((c) => ll.LatLng(c.lat, c.lon)).toList(),
                     strokeWidth: 4,
-                    color: _themeColors[route.theme] ?? Colors.blue,
+                    color: themeColors[route.theme] ?? Colors.blue,
                   ),
                 ],
               ),

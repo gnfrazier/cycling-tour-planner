@@ -14,6 +14,8 @@ void main() {
       ],
       'distance_m': 4200.5,
       'elevation_gain_m': 88.0,
+      'surface_breakdown_m': {'asphalt': 3400.5, 'gravel': 800.0},
+      'traffic_breakdown_m': {'residential': 4200.5},
     };
 
     final route = RouteResult.fromJson(json);
@@ -27,6 +29,8 @@ void main() {
     expect(route.distanceM, 4200.5);
     expect(route.distanceKm, closeTo(4.2005, 1e-9));
     expect(route.elevationGainM, 88.0);
+    expect(route.surfaceBreakdownM, {'asphalt': 3400.5, 'gravel': 800.0});
+    expect(route.trafficBreakdownM, {'residential': 4200.5});
   });
 
   test('theme and shape api values round-trip through fromApiValue', () {
@@ -36,5 +40,10 @@ void main() {
     for (final shape in RouteShape.values) {
       expect(RouteShape.fromApiValue(shape.apiValue), shape);
     }
+  });
+
+  test('an unrecognized theme/shape value throws a clear FormatException, not a bare StateError', () {
+    expect(() => RouteTheme.fromApiValue('not_a_real_theme'), throwsFormatException);
+    expect(() => RouteShape.fromApiValue('not_a_real_shape'), throwsFormatException);
   });
 }

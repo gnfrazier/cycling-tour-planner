@@ -50,6 +50,32 @@ void _resetControls(WidgetRef ref) {
   ref.read(routeGenerationProvider.notifier).clear();
 }
 
+/// Reset discards more than the lower-stakes "clear cache" action
+/// (manage_data_screen.dart) — theme, shape, both points, target distance,
+/// and any generated route, in one click with no undo — so it gets the
+/// same confirm-before-destructive-action treatment that action already has.
+void _confirmReset(BuildContext context, WidgetRef ref) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Reset all controls?'),
+      content: const Text(
+        "Clears the theme, shape, start, destination, target distance, and any generated route. Can't be undone.",
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () {
+            Navigator.of(dialogContext).pop();
+            _resetControls(ref);
+          },
+          child: const Text('Reset'),
+        ),
+      ],
+    ),
+  );
+}
+
 class RoutePlannerScreen extends ConsumerWidget {
   const RoutePlannerScreen({super.key});
 
@@ -101,6 +127,15 @@ class _StartupWait extends StatefulWidget {
 }
 
 class _StartupWaitState extends State<_StartupWait> {
+  // Well past the last scripted message (130s) — the poll loop itself never
+  // gives up (FR48: a cold start can legitimately take minutes, and that's
+  // not a failure), but past this point a rider deserves more than an
+  // endlessly-repeating joke with no indication anything might be wrong.
+  // This only ever adds text below the existing message; it never stops or
+  // fails the poll, so it can't reintroduce the false-failure behavior FR48
+  // itself replaced.
+  static const _extendedWaitThresholdSeconds = 300;
+
   int _elapsedSeconds = 0;
   late final Timer _timer;
 
@@ -132,6 +167,15 @@ class _StartupWaitState extends State<_StartupWait> {
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
             Text(message, textAlign: TextAlign.center),
+            if (_elapsedSeconds >= _extendedWaitThresholdSeconds) ...[
+              const SizedBox(height: 24),
+              Text(
+                'Still waiting — this is longer than a cold start usually takes.\n'
+                "If the backend process isn't running, see the README's troubleshooting section.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.outline),
+              ),
+            ],
           ],
         ),
       ),
@@ -210,7 +254,7 @@ class _PlannerBody extends ConsumerWidget {
                       OutlinedButton.icon(
                         icon: const Icon(Icons.restart_alt),
                         label: const Text('Reset'),
-                        onPressed: () => _resetControls(ref),
+                        onPressed: () => _confirmReset(context, ref),
                       ),
                     ],
                   ),
@@ -237,6 +281,19 @@ class _PlannerBody extends ConsumerWidget {
   }
 }
 
+/// PRD §6: "surface type and traffic level are always visible on a route,
+/// not hidden behind a details screen" — summarizes the top few tags by
+/// share of distance, e.g. "asphalt 82%, gravel 18%".
+String _formatBreakdown(Map<String, double> breakdownM) {
+  final total = breakdownM.values.fold(0.0, (sum, m) => sum + m);
+  if (total <= 0) return 'unknown';
+  final sorted = breakdownM.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+  return sorted
+      .take(3)
+      .map((e) => '${e.key.replaceAll('_', ' ')} ${(e.value / total * 100).round()}%')
+      .join(', ');
+}
+
 class _RouteSummary extends StatelessWidget {
   final RouteResult route;
   final void Function(ExportFormat) onExport;
@@ -250,6 +307,8 @@ class _RouteSummary extends StatelessWidget {
       children: [
         Text('Distance: ${route.distanceKm.toStringAsFixed(1)} km'),
         Text('Elevation gain: ${route.elevationGainM.toStringAsFixed(0)} m'),
+        Text('Surface: ${_formatBreakdown(route.surfaceBreakdownM)}'),
+        Text('Traffic: ${_formatBreakdown(route.trafficBreakdownM)}'),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,

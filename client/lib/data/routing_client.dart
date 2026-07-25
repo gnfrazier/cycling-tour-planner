@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -30,8 +31,25 @@ class RoutingClient {
   final String baseUrl;
   final http.Client _http;
 
+  static const _requestTimeout = Duration(seconds: 30);
+
   RoutingClient({this.baseUrl = AppConfig.apiBaseUrl, http.Client? httpClient})
       : _http = httpClient ?? http.Client();
+
+  /// Runs an HTTP call with a timeout and turns anything below the HTTP
+  /// layer (connection refused, DNS failure, a hung backend) into the same
+  /// friendly RoutingClientException a bad status code already produces —
+  /// without this, those failures reach the UI as raw framework exception
+  /// text (`SocketException: ...`) instead of something a rider can act on.
+  Future<http.Response> _guarded(Future<http.Response> Function() send) async {
+    try {
+      return await send().timeout(_requestTimeout);
+    } on TimeoutException {
+      throw RoutingClientException('The routing engine took too long to respond.');
+    } catch (e) {
+      throw RoutingClientException('Could not reach the routing engine — is it still running? ($e)');
+    }
+  }
 
   Future<bool> checkReady() async {
     try {
@@ -46,7 +64,7 @@ class RoutingClient {
 
   Future<GeocodeResult> geocode(String query) async {
     final uri = Uri.parse('$baseUrl/geocode').replace(queryParameters: {'q': query});
-    final resp = await _http.get(uri);
+    final resp = await _guarded(() => _http.get(uri));
     if (resp.statusCode != 200) {
       throw RoutingClientException('could not find "$query"');
     }
@@ -78,10 +96,12 @@ class RoutingClient {
       'target_distance_km': ?effectiveTargetDistanceKm,
     };
 
-    final resp = await _http.post(
-      Uri.parse('$baseUrl/routes/generate'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(payload),
+    final resp = await _guarded(
+      () => _http.post(
+        Uri.parse('$baseUrl/routes/generate'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      ),
     );
     if (resp.statusCode != 200) {
       throw RoutingClientException(_errorDetail(resp));
@@ -92,7 +112,7 @@ class RoutingClient {
   Future<Uint8List> exportRoute(String routeId, ExportFormat format) async {
     final uri = Uri.parse('$baseUrl/routes/$routeId/export')
         .replace(queryParameters: {'fmt': format.apiValue});
-    final resp = await _http.post(uri);
+    final resp = await _guarded(() => _http.post(uri));
     if (resp.statusCode != 200) {
       throw RoutingClientException(_errorDetail(resp));
     }
@@ -102,7 +122,7 @@ class RoutingClient {
   /// FR39 (desktop half) — prune downloaded region data. Returns whether
   /// anything was actually cleared.
   Future<bool> clearCache() async {
-    final resp = await _http.post(Uri.parse('$baseUrl/admin/clear-cache'));
+    final resp = await _guarded(() => _http.post(Uri.parse('$baseUrl/admin/clear-cache')));
     if (resp.statusCode != 200) {
       throw RoutingClientException(_errorDetail(resp));
     }

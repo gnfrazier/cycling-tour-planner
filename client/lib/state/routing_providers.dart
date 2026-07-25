@@ -35,10 +35,29 @@ const targetDistanceStepsKm = <double>[10, 20, 30, 50, 80, 130, 210, 300];
 final targetDistanceKmProvider = StateProvider<double>((ref) => 20.0);
 
 class RouteGenerationNotifier extends AsyncNotifier<RouteResult?> {
+  // Bumped by clear() and by every generate() call, so a generate() whose
+  // network call is still in flight can tell it's been superseded (by a
+  // Reset, a changed input, or a newer generate()) and discard its result
+  // instead of overwriting whatever's current by the time it resolves.
+  int _generation = 0;
+
   @override
-  RouteResult? build() => null;
+  RouteResult? build() {
+    // A displayed route must never silently outlive the controls that
+    // produced it — clear it the moment any input it depends on changes,
+    // rather than leaving a stale polyline on screen next to controls that
+    // no longer match it.
+    ref.listen(selectedThemeProvider, (_, _) => clear());
+    ref.listen(selectedShapeProvider, (_, _) => clear());
+    ref.listen(startPointProvider, (_, _) => clear());
+    ref.listen(destinationPointProvider, (_, _) => clear());
+    ref.listen(targetDistanceKmProvider, (_, _) => clear());
+    return null;
+  }
 
   Future<void> generate() async {
+    final generation = ++_generation;
+
     final start = ref.read(startPointProvider);
     if (start == null) {
       state = AsyncError('Pick a start point first', StackTrace.current);
@@ -55,7 +74,7 @@ class RouteGenerationNotifier extends AsyncNotifier<RouteResult?> {
 
     state = const AsyncLoading();
     final client = ref.read(routingClientProvider);
-    state = await AsyncValue.guard(
+    final result = await AsyncValue.guard(
       () => client.generateRoute(
         start: start,
         end: shape == RouteShape.pointToPoint ? end : null,
@@ -64,9 +83,13 @@ class RouteGenerationNotifier extends AsyncNotifier<RouteResult?> {
         targetDistanceKm: ref.read(targetDistanceKmProvider),
       ),
     );
+    if (generation == _generation) {
+      state = result;
+    }
   }
 
   void clear() {
+    _generation++;
     state = const AsyncData(null);
   }
 }

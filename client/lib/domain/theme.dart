@@ -22,8 +22,10 @@ enum RouteTheme {
         RouteTheme.mostArt => 'Most Art & History',
       };
 
-  static RouteTheme fromApiValue(String value) =>
-      RouteTheme.values.firstWhere((t) => t.apiValue == value);
+  static RouteTheme fromApiValue(String value) => RouteTheme.values.firstWhere(
+        (t) => t.apiValue == value,
+        orElse: () => throw FormatException('Unrecognized route theme from the backend: "$value"'),
+      );
 }
 
 /// Route shape (FR35). Independent of theme.
@@ -44,8 +46,10 @@ enum RouteShape {
         RouteShape.pointToPoint => 'Point to Point',
       };
 
-  static RouteShape fromApiValue(String value) =>
-      RouteShape.values.firstWhere((s) => s.apiValue == value);
+  static RouteShape fromApiValue(String value) => RouteShape.values.firstWhere(
+        (s) => s.apiValue == value,
+        orElse: () => throw FormatException('Unrecognized route shape from the backend: "$value"'),
+      );
 }
 
 enum ExportFormat {

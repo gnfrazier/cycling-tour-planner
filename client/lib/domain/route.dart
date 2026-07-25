@@ -18,6 +18,11 @@ class RouteResult {
   final List<LatLon> coords;
   final double distanceM;
   final double elevationGainM;
+  // PRD §6: surface type and traffic level are always visible on a route —
+  // meters per OSM surface/highway tag. Default empty for call sites (tests,
+  // mainly) that don't need to care about this.
+  final Map<String, double> surfaceBreakdownM;
+  final Map<String, double> trafficBreakdownM;
 
   const RouteResult({
     required this.id,
@@ -26,6 +31,8 @@ class RouteResult {
     required this.coords,
     required this.distanceM,
     required this.elevationGainM,
+    this.surfaceBreakdownM = const {},
+    this.trafficBreakdownM = const {},
   });
 
   double get distanceKm => distanceM / 1000;
@@ -43,6 +50,13 @@ class RouteResult {
           .toList(),
       distanceM: (json['distance_m'] as num).toDouble(),
       elevationGainM: (json['elevation_gain_m'] as num).toDouble(),
+      surfaceBreakdownM: _parseBreakdown(json['surface_breakdown_m']),
+      trafficBreakdownM: _parseBreakdown(json['traffic_breakdown_m']),
     );
   }
+}
+
+Map<String, double> _parseBreakdown(dynamic raw) {
+  if (raw == null) return const {};
+  return (raw as Map<String, dynamic>).map((key, value) => MapEntry(key, (value as num).toDouble()));
 }
