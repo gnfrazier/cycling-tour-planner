@@ -12,6 +12,7 @@ import '../widgets/route_map.dart';
 import '../widgets/search_bar.dart';
 import '../widgets/theme_picker.dart';
 import 'manage_data_screen.dart';
+import 'trip_planner_screen.dart';
 
 Future<void> _exportRoute(
   BuildContext context,
@@ -87,6 +88,12 @@ class RoutePlannerScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Cycle Tour Planner'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            tooltip: 'Plan a multi-day trip',
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const TripPlannerScreen())),
+          ),
           IconButton(
             icon: const Icon(Icons.storage),
             tooltip: 'Manage downloaded data',
