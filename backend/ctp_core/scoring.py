@@ -6,10 +6,13 @@ instances fed to one scoring function (PRD §5.1, Architecture §5.3).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Sequence
 
 from .providers import NodeDataProvider
 from .types import BBox, Graph, Theme, WeightProfile
+
+logger = logging.getLogger(__name__)
 
 THEME_PROFILES: dict[Theme, WeightProfile] = {
     Theme.FLATTEST: WeightProfile(elevation_gain=-1.0),
@@ -145,10 +148,16 @@ def score_edges(
     # bonuses aren't part of FR13's day/segment override scope (elevation
     # and surface preference only, per PRD).
     art_weight = sum(default_profile.poi_bonus.values()) if default_profile.poi_bonus else 0.0
-    if art_weight and bbox is not None:
-        for provider in providers:
-            for node_id, score in provider.node_scores(graph, bbox).items():
-                node_bonus[node_id] = node_bonus.get(node_id, 0.0) + score
+    if art_weight:
+        providers = list(providers)
+        if bbox is None:
+            logger.warning("profile requests a POI bonus but no bbox was given — POI scoring skipped")
+        elif not providers:
+            logger.warning("profile requests a POI bonus but no providers were given — POI scoring skipped")
+        else:
+            for provider in providers:
+                for node_id, score in provider.node_scores(graph, bbox).items():
+                    node_bonus[node_id] = node_bonus.get(node_id, 0.0) + score
 
     for _u, v, _key, data in graph.edges(keys=True, data=True):
         profile = schedule.at(positions_km.get(v, 0.0)) if positions_km is not None else default_profile

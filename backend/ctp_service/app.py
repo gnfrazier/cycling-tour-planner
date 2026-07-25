@@ -67,22 +67,68 @@ _EXPORT_MEDIA_TYPES = {
 _MAX_BODY_BYTES = 1_000_000
 
 
+class _BodyTooLarge(Exception):
+    """Internal signal from the wrapped `receive` below back up to
+    MaxBodySizeMiddleware.__call__ — not raised past this module."""
+
+
 class MaxBodySizeMiddleware:
-    """Rejects requests whose declared Content-Length exceeds the cap,
-    before the body reaches routing/Pydantic."""
+    """Rejects requests whose body exceeds the cap.
+
+    A declared Content-Length over the cap is rejected up front, before the
+    body reaches routing/Pydantic at all. But the header alone isn't a
+    reliable guard — chunked transfer-encoding carries no Content-Length,
+    and a client can simply understate it — so actual bytes are also
+    counted as they stream in via a wrapped `receive`, and the request is
+    aborted the moment the real total crosses the cap, regardless of what
+    (if anything) the header claimed."""
 
     def __init__(self, app, max_bytes: int) -> None:
         self.app = app
         self.max_bytes = max_bytes
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] == "http":
-            content_length = Headers(scope=scope).get("content-length")
-            if content_length is not None and int(content_length) > self.max_bytes:
-                response = PlainTextResponse("request body too large", status_code=413)
-                await response(scope, receive, send)
-                return
-        await self.app(scope, receive, send)
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        content_length = Headers(scope=scope).get("content-length")
+        if content_length is not None and int(content_length) > self.max_bytes:
+            await PlainTextResponse("request body too large", status_code=413)(scope, receive, send)
+            return
+
+        received = 0
+
+        async def guarded_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise _BodyTooLarge()
+            return message
+
+        try:
+            await self.app(scope, guarded_receive, send)
+        except _BodyTooLarge:
+            await PlainTextResponse("request body too large", status_code=413)(scope, receive, send)
+
+
+# Routes/trips are kept in memory only so a later export/reroute call can
+# find them by id — nothing ever evicted them, so a long-running sidecar
+# session (or, more importantly, a future hosted/multi-tenant instance)
+# would otherwise grow this without bound. Trips are heavier (lodging +
+# weather per day) so get a smaller cap than single routes.
+_MAX_STORED_ROUTES = 200
+_MAX_STORED_TRIPS = 50
+
+
+def _store_bounded(mapping: dict, key: str, value: object, max_size: int) -> None:
+    """Inserts key/value, evicting the oldest entry (insertion order, which
+    plain dicts already preserve) once the mapping would exceed max_size."""
+    mapping[key] = value
+    while len(mapping) > max_size:
+        del mapping[next(iter(mapping))]
 
 
 def _require_in_bbox(coord: Coord, bbox: BBox, label: str) -> None:
@@ -190,7 +236,7 @@ def _register_common_routes(app: FastAPI) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        app.state.routes[route.id] = route
+        _store_bounded(app.state.routes, route.id, route, _MAX_STORED_ROUTES)
         return RouteResponse.from_route(route)
 
     @app.post("/routes/{route_id}/export")
@@ -244,7 +290,7 @@ def _register_common_routes(app: FastAPI) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        app.state.trips[trip.id] = trip
+        _store_bounded(app.state.trips, trip.id, trip, _MAX_STORED_TRIPS)
         return TripResponse.from_trip(trip)
 
     @app.post("/trips/{trip_id}/days/{day_index}/reroute", response_model=DayAlternativeResponse)

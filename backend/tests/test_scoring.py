@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from ctp_core.scoring import THEME_PROFILES, WeightSchedule, _surface_class, score_edges
@@ -122,3 +124,24 @@ def test_score_edges_positions_km_selects_override_profile_per_edge(base_graph, 
 
     for u, v, k in list(graph.edges(keys=True))[:5]:
         assert graph[u][v][k]["cost"] == pytest.approx(baseline[u][v][k]["cost"])
+
+
+def test_score_edges_warns_when_poi_bonus_requested_without_a_bbox(base_graph, caplog):
+    schedule = WeightSchedule(THEME_PROFILES[Theme.MOST_ART])
+    with caplog.at_level(logging.WARNING):
+        score_edges(base_graph.copy(), schedule, bbox=None, providers=[])
+    assert any("POI" in record.message for record in caplog.records)
+
+
+def test_score_edges_warns_when_poi_bonus_requested_without_providers(base_graph, bbox, caplog):
+    schedule = WeightSchedule(THEME_PROFILES[Theme.MOST_ART])
+    with caplog.at_level(logging.WARNING):
+        score_edges(base_graph.copy(), schedule, bbox=bbox, providers=[])
+    assert any("POI" in record.message for record in caplog.records)
+
+
+def test_score_edges_does_not_warn_for_a_non_art_theme(base_graph, caplog):
+    schedule = WeightSchedule(THEME_PROFILES[Theme.FLATTEST])
+    with caplog.at_level(logging.WARNING):
+        score_edges(base_graph.copy(), schedule, bbox=None, providers=[])
+    assert not any("POI" in record.message for record in caplog.records)

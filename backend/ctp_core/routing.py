@@ -54,7 +54,16 @@ def _node_near_distance(graph: Graph, source: int, target_m: float) -> int:
 
 
 def _shortest_path(graph: Graph, source: int, target: int) -> list[int]:
-    return nx.shortest_path(graph, source, target, weight="cost")
+    """Raises ValueError (not networkx's own NetworkXNoPath) when source and
+    target sit in different connected components — a real possibility on a
+    large bbox (river crossings, isolated cul-de-sacs, highway-only
+    barriers) — so every caller across ctp-service (routes and trips alike)
+    can keep using one `except ValueError` pattern instead of also needing
+    to know about a networkx-specific exception type."""
+    try:
+        return nx.shortest_path(graph, source, target, weight="cost")
+    except nx.NetworkXNoPath as exc:
+        raise ValueError(f"no route exists between the given points ({exc})") from exc
 
 
 def _shortest_path_avoiding_edges(
@@ -77,7 +86,7 @@ def _shortest_path_avoiding_edges(
         graph.remove_edge(u, v, k)
     try:
         return _shortest_path(graph, source, target)
-    except nx.NetworkXNoPath:
+    except ValueError:
         return None
     finally:
         for u, v, k, data in removed:
@@ -106,6 +115,40 @@ def _edge_coords(graph: Graph, u: int, v: int, edge_data: dict) -> list[Coord]:
     if _sq_dist(pts[0], u_xy) > _sq_dist(pts[-1], u_xy):
         pts.reverse()
     return [Coord(lat=y, lon=x) for x, y in pts]
+
+
+def _surface_tag(edge_data: dict) -> str:
+    surface = edge_data.get("surface")
+    if isinstance(surface, list):
+        surface = surface[0] if surface else None
+    return surface or "unknown"
+
+
+def _highway_tag(edge_data: dict) -> str:
+    highway = edge_data.get("highway")
+    if isinstance(highway, list):
+        highway = highway[0] if highway else None
+    return highway or "unknown"
+
+
+def _tag_breakdown_m(graph: Graph, path: list[int], tag_fn) -> dict[str, float]:
+    """Meters of `path` grouped by whatever tag_fn reads off each edge (PRD
+    §6: surface type and traffic level must always be visible on a route,
+    not derived after the fact from raw coordinates)."""
+    breakdown: dict[str, float] = {}
+    for u, v in zip(path, path[1:]):
+        edge_data = min(graph[u][v].values(), key=lambda d: d.get("cost", float("inf")))
+        tag = tag_fn(edge_data)
+        breakdown[tag] = breakdown.get(tag, 0.0) + edge_data.get("length", 0.0)
+    return breakdown
+
+
+def _merge_breakdowns(*breakdowns: dict[str, float]) -> dict[str, float]:
+    merged: dict[str, float] = {}
+    for breakdown in breakdowns:
+        for tag, meters in breakdown.items():
+            merged[tag] = merged.get(tag, 0.0) + meters
+    return merged
 
 
 def _path_geometry(graph: Graph, path: list[int]) -> tuple[list[Coord], float, float]:
@@ -155,6 +198,8 @@ def solve_route(
         end_node = _nearest_node(graph, end)
         path = _shortest_path(graph, start_node, end_node)
         coords, distance_m, elevation_gain_m = _path_geometry(graph, path)
+        surface_breakdown_m = _tag_breakdown_m(graph, path, _surface_tag)
+        traffic_breakdown_m = _tag_breakdown_m(graph, path, _highway_tag)
 
     elif shape is RouteShape.OUT_AND_BACK:
         if end is not None:
@@ -168,6 +213,12 @@ def solve_route(
         distance_m = leg_distance_m * 2
         elevation_gain_m = leg_elevation_m * 2
         coords = out_coords + list(reversed(out_coords))[1:]
+        # Retraces the same edges on the way back, so the breakdown is the
+        # outbound leg's, doubled — same doubling as distance_m/elevation_gain_m above.
+        leg_surface = _tag_breakdown_m(graph, leg_out, _surface_tag)
+        leg_traffic = _tag_breakdown_m(graph, leg_out, _highway_tag)
+        surface_breakdown_m = _merge_breakdowns(leg_surface, leg_surface)
+        traffic_breakdown_m = _merge_breakdowns(leg_traffic, leg_traffic)
 
     elif shape is RouteShape.LOOP:
         if target_distance_km is None:
@@ -185,6 +236,12 @@ def solve_route(
         distance_m = out_distance_m + back_distance_m
         elevation_gain_m = out_elevation_m + back_elevation_m
         coords = out_coords + back_coords[1:]
+        surface_breakdown_m = _merge_breakdowns(
+            _tag_breakdown_m(graph, leg_out, _surface_tag), _tag_breakdown_m(graph, leg_back, _surface_tag)
+        )
+        traffic_breakdown_m = _merge_breakdowns(
+            _tag_breakdown_m(graph, leg_out, _highway_tag), _tag_breakdown_m(graph, leg_back, _highway_tag)
+        )
 
     else:
         raise ValueError(f"unknown route shape: {shape}")
@@ -196,4 +253,6 @@ def solve_route(
         coords=coords,
         distance_m=distance_m,
         elevation_gain_m=elevation_gain_m,
+        surface_breakdown_m=surface_breakdown_m,
+        traffic_breakdown_m=traffic_breakdown_m,
     )

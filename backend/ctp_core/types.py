@@ -74,6 +74,12 @@ class Route:
     coords: list[Coord]
     distance_m: float
     elevation_gain_m: float
+    # PRD §6: "surface type and traffic level are always visible on a
+    # route" — meters per OSM `surface`/`highway` tag along the route.
+    # Default empty for callers (e.g. a single trip-day export) that don't
+    # compute this breakdown themselves.
+    surface_breakdown_m: dict[str, float] = field(default_factory=dict)
+    traffic_breakdown_m: dict[str, float] = field(default_factory=dict)
 
 
 class RiderBand(str, Enum):

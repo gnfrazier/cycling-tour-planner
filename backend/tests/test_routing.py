@@ -63,6 +63,27 @@ def test_out_and_back_retraces_the_same_outbound_and_return_path(base_graph, bbo
     assert [(c.lat, c.lon) for c in outbound] == [(c.lat, c.lon) for c in inbound]
 
 
+@pytest.mark.parametrize(
+    "shape,kwargs",
+    [
+        (RouteShape.POINT_TO_POINT, {"end": DESTINATION}),
+        (RouteShape.OUT_AND_BACK, {"end": None, "target_distance_km": 4.0}),
+        (RouteShape.LOOP, {"end": None, "target_distance_km": 4.0}),
+    ],
+)
+def test_solve_route_populates_surface_and_traffic_breakdown(base_graph, bbox, shape, kwargs):
+    graph = score_edges(base_graph.copy(), WeightSchedule(THEME_PROFILES[Theme.FLATTEST]), bbox=bbox)
+    route = solve_route(graph, START, shape=shape, theme=Theme.FLATTEST, cpus=1, **kwargs)
+
+    assert route.surface_breakdown_m
+    assert route.traffic_breakdown_m
+    # Every meter of the route is accounted for in each breakdown (PRD §6:
+    # this data must be complete enough to actually summarize the route,
+    # not just a sample).
+    assert sum(route.surface_breakdown_m.values()) == pytest.approx(route.distance_m)
+    assert sum(route.traffic_breakdown_m.values()) == pytest.approx(route.distance_m)
+
+
 def test_node_near_distance_prefers_different_turnaround_nodes_per_theme(base_graph, bbox):
     start_node = _nearest_node(base_graph, START)
     picked_nodes = set()
@@ -89,6 +110,20 @@ def test_loop_avoids_a_pure_retrace_when_an_alternative_route_exists(base_graph,
         graph, START, end=None, shape=RouteShape.LOOP, theme=Theme.FLATTEST, cpus=1, target_distance_km=1.5
     )
     assert [(c.lat, c.lon) for c in route.coords] != retrace_coords
+
+
+def test_shortest_path_raises_value_error_not_networkx_no_path_when_disconnected():
+    graph = nx.MultiDiGraph()
+    # Two separate components: 1--2, and an unreachable 3--4.
+    graph.add_edge(1, 2, 0, cost=1.0)
+    graph.add_edge(2, 1, 0, cost=1.0)
+    graph.add_edge(3, 4, 0, cost=1.0)
+    graph.add_edge(4, 3, 0, cost=1.0)
+
+    # A plain ValueError, not networkx's own NetworkXNoPath, so every
+    # ctp-service call site can keep using one `except ValueError` pattern.
+    with pytest.raises(ValueError):
+        _shortest_path(graph, 1, 3)
 
 
 def test_shortest_path_avoiding_edges_returns_none_on_a_dead_end_spur():

@@ -10,6 +10,7 @@ solely where the interface resolves data from — never the caller's contract.
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 from pathlib import Path
 from typing import Protocol
@@ -75,9 +76,14 @@ class GedtmElevationProvider:
                     # read (~1.6GB for the NC raster) to silence properly.
                     warnings.simplefilter("ignore", DeprecationWarning)
                     value = ds.read(1, window=((row, row + 1), (col, col + 1)))[0, 0]
-                if ds.nodata is not None and value == ds.nodata:
+                value = float(value)
+                # `value == ds.nodata` alone misses a NaN nodata sentinel —
+                # NaN never equals anything, itself included, under
+                # IEEE754 — which would otherwise let a raw NaN elevation
+                # through instead of the documented flat-earth fallback.
+                if math.isnan(value) or (ds.nodata is not None and value == ds.nodata):
                     return 0.0
-                return float(value)
+                return value
             except Exception:
                 logger.warning("elevation read failed for %s", coord, exc_info=True)
                 return 0.0

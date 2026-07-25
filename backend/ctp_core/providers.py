@@ -8,11 +8,14 @@ so the extension point is proven rather than assumed (Roadmap Leg 1).
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 import osmnx as ox
 
 from .types import BBox, Coord, Graph, LodgingOption
+
+logger = logging.getLogger(__name__)
 
 
 class NodeDataProvider(Protocol):
@@ -25,6 +28,11 @@ def _snap_pois_to_nodes(graph: Graph, bbox: BBox, tags: dict) -> dict[int, float
     try:
         pois = ox.features_from_bbox(bbox.as_tuple(), tags=tags)
     except Exception:
+        # A genuine Overpass outage/timeout is otherwise indistinguishable
+        # from "no matching POIs exist here" — log it (matching
+        # elevation.py's established pattern) rather than silently
+        # degrading the most-art theme to a no-op with no diagnostic trail.
+        logger.warning("POI lookup failed for tags %s in bbox %s", tags, bbox, exc_info=True)
         return {}
     if pois.empty:
         return {}

@@ -1,9 +1,10 @@
+import asyncio
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
-from ctp_service.app import create_app
+from ctp_service.app import MaxBodySizeMiddleware, _store_bounded, create_app
 from ctp_service.config import Settings
 
 from .conftest import TEST_BBOX
@@ -55,6 +56,8 @@ def test_generate_route_then_export_every_format(client):
     route = generate_resp.json()
     assert route["theme"] == "flattest"
     assert len(route["coords"]) >= 2
+    assert route["surface_breakdown_m"]
+    assert route["traffic_breakdown_m"]
 
     for fmt, content_type_prefix in [
         ("gpx", "application/gpx+xml"),
@@ -143,6 +146,48 @@ def test_oversized_request_body_is_rejected(client):
         headers={"content-type": "application/json"},
     )
     assert resp.status_code == 413
+
+
+def test_body_size_cap_enforced_even_without_a_content_length_header():
+    """A declared Content-Length is what the header-only check inspects —
+    but chunked transfer-encoding (or a client simply omitting/understating
+    the header) carries no such header at all, and must still be caught
+    against the real bytes received as they stream in."""
+
+    async def _dummy_app(scope, receive, send):
+        while True:
+            message = await receive()
+            if not message.get("more_body", False):
+                break
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    middleware = MaxBodySizeMiddleware(_dummy_app, max_bytes=10)
+    scope = {"type": "http", "headers": []}  # no content-length header at all
+    chunks = [b"a" * 6, b"b" * 6]  # 12 bytes total, over the cap, arriving in pieces
+
+    async def receive():
+        chunk = chunks.pop(0) if chunks else b""
+        return {"type": "http.request", "body": chunk, "more_body": bool(chunks)}
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(middleware(scope, receive, send))
+
+    assert sent[0]["status"] == 413
+
+
+def test_store_bounded_evicts_oldest_entry_past_the_cap():
+    store: dict[str, int] = {}
+    for i in range(5):
+        _store_bounded(store, f"key{i}", i, max_size=3)
+
+    assert len(store) == 3
+    # The two oldest insertions (key0, key1) are gone; the three most recent remain.
+    assert list(store.keys()) == ["key2", "key3", "key4"]
 
 
 def test_sidecar_only_routes_are_absent_in_hosted_mode():

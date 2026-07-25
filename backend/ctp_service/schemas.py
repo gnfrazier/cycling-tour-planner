@@ -50,6 +50,10 @@ class RouteResponse(BaseModel):
     coords: list[CoordModel]
     distance_m: float
     elevation_gain_m: float
+    # PRD §6: surface type and traffic level are always visible on a route —
+    # meters per OSM `surface`/`highway` tag, e.g. {"asphalt": 4200.0}.
+    surface_breakdown_m: dict[str, float]
+    traffic_breakdown_m: dict[str, float]
 
     @classmethod
     def from_route(cls, route: Route) -> RouteResponse:
@@ -60,6 +64,8 @@ class RouteResponse(BaseModel):
             coords=[CoordModel(lat=c.lat, lon=c.lon) for c in route.coords],
             distance_m=route.distance_m,
             elevation_gain_m=route.elevation_gain_m,
+            surface_breakdown_m=route.surface_breakdown_m,
+            traffic_breakdown_m=route.traffic_breakdown_m,
         )
 
 
