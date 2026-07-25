@@ -8,9 +8,13 @@ from ctp_core.scoring import THEME_PROFILES
 from ctp_core.trips import _regroup_cautions, default_day_split, propose_day_alternative, solve_trip
 from ctp_core.types import Coord, DaySplitConfig, RiderBand, Theme, Waypoint, WeightOverride, WeightProfile
 
+# Spread across ~20km total, not a ~1km cluster -- a real multi-day-worthy
+# distance over the now-full-size ~80km test bbox, so day-splitting is
+# exercised at a realistic scale rather than only via an artificially tiny
+# max_daily_km.
 START = Coord(lat=35.6841, lon=-82.0091)
-MID = Coord(lat=35.690, lon=-82.005)
-END = Coord(lat=35.695, lon=-82.010)
+MID = Coord(lat=35.780, lon=-81.980)
+END = Coord(lat=35.850, lon=-81.950)
 START_DATE = datetime.date(2026, 6, 1)
 WAYPOINTS = [Waypoint(coord=START), Waypoint(coord=MID), Waypoint(coord=END)]
 
@@ -64,7 +68,7 @@ def test_whole_trip_fits_in_one_day_when_caps_are_generous(base_graph, bbox):
 
 
 def test_tight_distance_cap_splits_into_multiple_days_within_cap(base_graph, bbox):
-    max_km = 1.0
+    max_km = 5.0
     trip = _solve(base_graph, bbox, day_split=DaySplitConfig(min_daily_km=0.1, max_daily_km=max_km))
     assert len(trip.days) > 1
     for day in trip.days[:-1]:
@@ -87,16 +91,18 @@ def test_elevation_cap_can_bind_before_distance_cap(base_graph, bbox):
 
 
 def test_day_dates_and_indices_are_sequential(base_graph, bbox):
-    trip = _solve(base_graph, bbox, day_split=DaySplitConfig(min_daily_km=0.1, max_daily_km=1.0))
+    trip = _solve(base_graph, bbox, day_split=DaySplitConfig(min_daily_km=0.1, max_daily_km=5.0))
     assert trip.start_date == START_DATE
     assert len(trip.days) > 1  # otherwise this test proves nothing about sequencing
     assert [day.index for day in trip.days] == list(range(len(trip.days)))
 
 
 def test_surface_preference_override_still_produces_a_valid_trip(base_graph, bbox):
-    # Not asserting the two routes differ (this small bbox may have no
-    # unpaved alternative at all) -- only that a day-scoped override never
-    # breaks the solve and still produces a valid, fully-covering trip.
+    # Not asserting the two routes differ -- rural western-NC roads may
+    # legitimately have no unpaved alternative along this particular
+    # waypoint chain even over the full ~80km bbox. Only asserting that a
+    # day-scoped override never breaks the solve and still produces a
+    # valid, fully-covering trip.
     override = WeightOverride(day_index=0, profile=WeightProfile(surface_preference=-1.0))
     overridden = _solve(base_graph, bbox, overrides=[override])
     assert overridden.total_distance_m > 0
@@ -123,7 +129,7 @@ def test_regroup_cautions_empty_for_solo_riders(base_graph, bbox):
 
 
 def test_propose_day_alternative_does_not_mutate_the_stored_trip(base_graph, bbox):
-    trip = _solve(base_graph, bbox, day_split=DaySplitConfig(min_daily_km=0.1, max_daily_km=1.0))
+    trip = _solve(base_graph, bbox, day_split=DaySplitConfig(min_daily_km=0.1, max_daily_km=5.0))
     original_days = list(trip.days)
     original_first_day_distance = trip.days[0].distance_m
 

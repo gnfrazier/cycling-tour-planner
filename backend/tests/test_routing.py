@@ -69,8 +69,8 @@ def test_out_and_back_retraces_the_same_outbound_and_return_path(base_graph, bbo
     "shape,kwargs",
     [
         (RouteShape.POINT_TO_POINT, {"end": DESTINATION}),
-        (RouteShape.OUT_AND_BACK, {"end": None, "target_distance_km": 4.0}),
-        (RouteShape.LOOP, {"end": None, "target_distance_km": 4.0}),
+        (RouteShape.OUT_AND_BACK, {"end": None, "target_distance_km": 20.0}),
+        (RouteShape.LOOP, {"end": None, "target_distance_km": 20.0}),
     ],
 )
 def test_solve_route_populates_surface_and_traffic_breakdown(base_graph, bbox, shape, kwargs):
