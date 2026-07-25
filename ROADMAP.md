@@ -1,7 +1,7 @@
 # Cycle Tour Planner — Product Roadmap
 
 **Source:** `Cycle_Tour_Planner_PRD.md` v2.1 + `ARCHITECTURE.md` v1.0
-**As of:** 2026-07-24 — MVP built (M1→M4: routing core, FastAPI, Desktop client, export), with a known gap list (below) against the PRD's full M3 deliverable set. Post-MVP hardening is complete: a security review pass, initial bug fixes, the startup-wait UX (FR48), a QA pass on route-generation correctness, and the new reset-controls action (FR49). Leg 3 is next
+**As of:** 2026-07-24 — MVP built (M1→M4: routing core, FastAPI, Desktop client, export), with a known gap list (below) against the PRD's full M3 deliverable set. Post-MVP hardening is complete: a security review pass, initial bug fixes, the startup-wait UX (FR48), a QA pass on route-generation correctness, and the new reset-controls action (FR49). Leg 3's backend (`ctp_core` + `ctp_service`: FR10–FR13, FR42, FR14, FR46, FR15) is now built and tested on the `dev` branch — 99 backend tests passing; the Desktop client for those features is next
 **Sequencing:** by dependency, not calendar date (solo project, PRD §8)
 
 A local-first route planner that generates rides around a theme — flattest, most climbing, lowest traffic, fewest turns, most art & history — not a segment feed. Desktop and Mobile run the routing core *on the device* inside a local sidecar process (`ctp-service` wrapping `ctp-core`); Web is a deliberate, stated exception that always computes server-side on Render. This is the build order.
@@ -19,7 +19,7 @@ Status legend: **Done** · **Now** · **Next** · **Later**
 | Leg 1 | M1, M2 | Done |
 | Leg 2 | M3, M4 | Done, with open gaps |
 | *(Post-MVP hardening — not a numbered leg or milestone)* | between M4 and M5 | Done |
-| **Leg 3** | **M5** | Now |
+| **Leg 3** | **M5** | Now — backend done, Desktop client next |
 | Leg 4 | M6 | Later |
 | Leg 5 | M7 | Later |
 | Leg 6 | M8 | Later |
@@ -100,23 +100,27 @@ Between the initial M1–M4 build and starting Leg 3, the app went through a QA/
 
 ---
 
-## Leg 3 — Multi-day trip logistics (M5) — *Now*
+## Leg 3 — Multi-day trip logistics (M5) — *Now — backend done, Desktop client next*
 
 **Milestone(s): M5**
 
 Turn one route into a real multi-day tour: waypoints a route must honor, daily mileage/elevation splitting, surface control, sliding-scale weighting, route alternatives, group-size awareness, and the lodging and historical-weather context a tour planner needs to book stays.
 
-**Deliverables** (matches the PRD's own M5 row, §8 — previously this list silently dropped FR42/FR46, which the PRD's milestone table includes; restored here, ordered by build dependency rather than the PRD's listing order)
-- FR10 — Waypoints / checkpoints
-- FR11 — Daily mileage & elevation splitting
-- FR12 — Surface-type scoring
-- FR13 — Tour / day / partial-day sliding-scale weighting (elevation, surface)
-- FR42 — Route alternatives & variants (a scoped re-route proposed via FR13, shown ghost-vs-bold alongside the current route; depends on FR13 existing first)
-- FR14 — Lodging & campground data (OSM tags — resolved, no dedicated data source needed)
-- FR46 — Group-size-aware planning (rider-band informs lodging/campground sizing from FR14, road-width/regroup cautions, and seeds day mileage/climb defaults that FR13 can still override)
-- FR15 — **Historical Weather** only at this leg (seasonal norms via Open-Meteo), Desktop first. Weather Forecast (10-day/hourly) ships later, at M7, across all clients simultaneously
+**Deliverables shipped (backend — `ctp_core` + `ctp_service`, `dev` branch, 99 backend tests passing)** — matches the PRD's own M5 row, §8; previously this list silently dropped FR42/FR46, which the PRD's milestone table includes — restored here, ordered by build dependency rather than the PRD's listing order, not shipped in dependency order (FR13 before FR42, FR14/FR11 before FR46)
+- FR10 — Waypoints / checkpoints — chained waypoint-to-waypoint leg solving (`ctp_core/trips.py`)
+- FR11 — Daily mileage & elevation splitting — greedy, cap-respecting day-boundary split; whichever of distance/elevation caps binds first ends the day (resolved default for an unspecified PRD priority order)
+- FR12 — Surface-type scoring — OSM `surface` tag → paved/unpaved cost class, mirrors the existing traffic-class pattern (`scoring.py`)
+- FR13 — Tour / day / partial-day sliding-scale weighting — `WeightSchedule.at(position)` is now a real per-edge, per-position lookup, exactly the one-function change Architecture §5.5 promised, not a new solver
+- FR42 — Route alternatives & variants — propose/apply-alternative endpoints; a proposal never mutates the stored trip until a separate "make active" call commits it
+- FR14 — Lodging & campground data — `OsmLodgingProvider.options_near()` surfaces real named options per day, not just a routing-bias score (OSM tags — resolved, no dedicated data source needed)
+- FR46 — Group-size-aware planning — rider-band-seeded day-distance defaults, still overridable by FR13; narrow/unpaved-stretch regroup cautions
+- FR15 — **Historical Weather** — seasonal norms via Open-Meteo's archive + air-quality APIs, averaged over the last 10 years per calendar day; Desktop-first per the PRD, though at this stage it's backend-only regardless of client
 
-**Learning goal:** Exercise Leg 1's `weights.at(position)` seam for real — resolve tour-default vs. day-override vs. segment-override profiles per edge. Because that lookup was built at M1 returning a constant, this is a change to one function, not a new solver (Architecture §5.5). Weather provider is resolved as Open-Meteo (no longer an open question).
+**QA confirmed:** the new per-day export endpoint (`POST /trips/{trip_id}/days/{day_index}/export`) produces GPX, TCX, and FIT files that import cleanly into RideWithGPS — hand-verified, the same success bar Leg 2 set for single-route export (FR9).
+
+**Known gap — Desktop client**: none of the above is reachable from the Flutter app yet. The API surface exists and is tested (FastAPI TestClient, one call per endpoint), but there's no waypoint-entry UI, day-timeline view, weighting-slider panel, or alternatives-compare screen — the last two wireframed already at `wireframes/img/9a-day-timeline-variant-desktop.png` / `10a-compare-alternatives-desktop.png` — wired up to them. This is the leg's own Stage B, tracked as the next unit of work, not a deferred stretch goal.
+
+**Learning goal:** Exercise Leg 1's `weights.at(position)` seam for real — resolve tour-default vs. day-override vs. segment-override profiles per edge. Because that lookup was built at M1 returning a constant, this is a change to one function, not a new solver (Architecture §5.5) — confirmed in the build: `WeightSchedule.at()` and `score_edges`'s new `positions_km` parameter carry FR13; `routing.py`'s actual Dijkstra solve (`_shortest_path`) is unchanged, it only gained one shared helper (`_distances_from`, factored out of `_node_near_distance`) that FR13's per-leg position estimate now reuses too. Weather provider is resolved as Open-Meteo (no longer an open question).
 
 ---
 
