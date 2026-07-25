@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../domain/route.dart';
 import '../domain/theme.dart';
+import '../domain/trip.dart';
 
 class RoutingClientException implements Exception {
   final String message;
@@ -118,6 +119,134 @@ class RoutingClient {
     }
     return resp.bodyBytes;
   }
+
+  /// FR10/FR11/FR12/FR13/FR14/FR15/FR46 — solve a multi-day trip. `day_split`
+  /// is omitted entirely when both caps are null, letting the backend's
+  /// rider-band default (`default_day_split`) apply — same wire-boundary
+  /// pattern as `target_distance_km` being omitted for point-to-point above.
+  Future<TripResult> generateTrip({
+    required List<Waypoint> waypoints,
+    required RouteTheme theme,
+    required RiderBand riderBand,
+    required DateTime startDate,
+    double elevationGain = 0.0,
+    double surfacePreference = 0.0,
+    List<WeightOverrideInput> overrides = const [],
+    double? maxDailyKm,
+    double? maxDailyElevationM,
+  }) async {
+    final payload = <String, dynamic>{
+      'waypoints': waypoints.map((w) => w.toJson()).toList(),
+      'theme': theme.apiValue,
+      'elevation_gain': elevationGain,
+      'surface_preference': surfacePreference,
+      'overrides': overrides.map((o) => o.toJson()).toList(),
+      'rider_band': riderBand.apiValue,
+      'start_date': _dateOnly(startDate),
+      if (maxDailyKm != null)
+        'day_split': {
+          // FR11's min is a soft target only; a fixed generous floor keeps
+          // the payload valid without exposing a control the UI doesn't have.
+          'min_daily_km': 1.0,
+          'max_daily_km': maxDailyKm,
+          'max_daily_elevation_m': ?maxDailyElevationM,
+        },
+    };
+
+    final resp = await _guarded(
+      () => _http.post(
+        Uri.parse('$baseUrl/trips/generate'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      ),
+    );
+    if (resp.statusCode != 200) {
+      throw RoutingClientException(_errorDetail(resp));
+    }
+    return TripResult.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
+  /// FR42 — proposes an alternative for one day/segment alongside the
+  /// current one, without mutating the stored trip.
+  Future<DayAlternative> proposeAlternative({
+    required String tripId,
+    required int dayIndex,
+    double elevationGain = 0.0,
+    double surfacePreference = 0.0,
+    double? segmentStartKm,
+    double? segmentEndKm,
+  }) async {
+    final resp = await _guarded(
+      () => _http.post(
+        Uri.parse('$baseUrl/trips/$tripId/days/$dayIndex/reroute'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(_alternativeRequestBody(
+          elevationGain: elevationGain,
+          surfacePreference: surfacePreference,
+          segmentStartKm: segmentStartKm,
+          segmentEndKm: segmentEndKm,
+        )),
+      ),
+    );
+    if (resp.statusCode != 200) {
+      throw RoutingClientException(_errorDetail(resp));
+    }
+    return DayAlternative.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
+  /// FR42 "make active" — recomputes the same alternative and swaps it into
+  /// the stored trip, returning the whole updated trip.
+  Future<TripResult> applyAlternative({
+    required String tripId,
+    required int dayIndex,
+    double elevationGain = 0.0,
+    double surfacePreference = 0.0,
+    double? segmentStartKm,
+    double? segmentEndKm,
+  }) async {
+    final resp = await _guarded(
+      () => _http.post(
+        Uri.parse('$baseUrl/trips/$tripId/days/$dayIndex/apply-alternative'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(_alternativeRequestBody(
+          elevationGain: elevationGain,
+          surfacePreference: surfacePreference,
+          segmentStartKm: segmentStartKm,
+          segmentEndKm: segmentEndKm,
+        )),
+      ),
+    );
+    if (resp.statusCode != 200) {
+      throw RoutingClientException(_errorDetail(resp));
+    }
+    return TripResult.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);
+  }
+
+  Map<String, dynamic> _alternativeRequestBody({
+    required double elevationGain,
+    required double surfacePreference,
+    double? segmentStartKm,
+    double? segmentEndKm,
+  }) =>
+      {
+        'elevation_gain': elevationGain,
+        'surface_preference': surfacePreference,
+        'segment_start_km': ?segmentStartKm,
+        'segment_end_km': ?segmentEndKm,
+      };
+
+  Future<Uint8List> exportDay(String tripId, int dayIndex, ExportFormat format) async {
+    final uri = Uri.parse('$baseUrl/trips/$tripId/days/$dayIndex/export')
+        .replace(queryParameters: {'fmt': format.apiValue});
+    final resp = await _guarded(() => _http.post(uri));
+    if (resp.statusCode != 200) {
+      throw RoutingClientException(_errorDetail(resp));
+    }
+    return resp.bodyBytes;
+  }
+
+  String _dateOnly(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
   /// FR39 (desktop half) — prune downloaded region data. Returns whether
   /// anything was actually cleared.
