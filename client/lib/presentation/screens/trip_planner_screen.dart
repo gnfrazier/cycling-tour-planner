@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/trip.dart';
 import '../../state/trip_providers.dart';
 import '../widgets/day_timeline.dart';
+import '../widgets/day_weighting_panel.dart';
 import '../widgets/theme_picker.dart';
 import '../widgets/trip_map.dart';
 import '../widgets/waypoint_list.dart';
@@ -73,9 +74,13 @@ class TripPlannerScreen extends ConsumerWidget {
           const VerticalDivider(width: 1),
           Expanded(
             child: Column(
-              children: const [
-                Expanded(child: TripMap()),
-                DayTimeline(),
+              children: [
+                const Expanded(child: TripMap()),
+                const DayTimeline(),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 280),
+                  child: const SingleChildScrollView(child: DayWeightingPanel()),
+                ),
               ],
             ),
           ),
