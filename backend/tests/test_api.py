@@ -12,13 +12,17 @@ from .conftest import TEST_BBOX
 
 @pytest.fixture(scope="module")
 def client():
-    # Settings().bbox defaults to the real ~80km shipped region (config.py),
-    # which is too slow to fetch fresh in a test run — pin explicitly to
-    # tests/conftest.py's TEST_BBOX so this reuses the same warm OSMnx cache
-    # the other tests already primed.
+    # Pinned explicitly to tests/conftest.py's TEST_BBOX (rather than relying
+    # on Settings()'s own default) so this always shares one OSMnx cache key
+    # with the other fixture-backed tests, regardless of a CTP_BBOX override
+    # in the environment. test_api.py collects alphabetically before
+    # test_routing.py/test_trips.py, so it's normally the *first* test to
+    # touch this bbox, not a beneficiary of an already-warm cache — a real
+    # Overpass fetch + graph build for the full ~80km region can legitimately
+    # take several minutes, well past a short timeout.
     app = create_app(settings=Settings(bbox=TEST_BBOX))
     with TestClient(app) as test_client:
-        deadline = time.time() + 90
+        deadline = time.time() + 900
         while time.time() < deadline:
             if test_client.get("/health").json()["ready"]:
                 break
@@ -45,11 +49,13 @@ def test_geocode_resolves_marion_nc(client):
 
 
 def test_generate_route_then_export_every_format(client):
+    # 20km, not a token few hundred meters — exercises real route-shaping
+    # over a meaningful slice of the now-full-size ~80km test bbox.
     payload = {
         "start": {"lat": 35.6841, "lon": -82.0091},
         "theme": "flattest",
         "shape": "loop",
-        "target_distance_km": 4.0,
+        "target_distance_km": 20.0,
     }
     generate_resp = client.post("/routes/generate", json=payload)
     assert generate_resp.status_code == 200
@@ -201,9 +207,13 @@ def test_sidecar_only_routes_are_absent_in_hosted_mode():
 
 # FR10-FR15/FR42/FR46 -- multi-day trip endpoints (Leg 3 / M5)
 
+# ~18km apart (not a few hundred meters) -- both still comfortably inside
+# TEST_BBOX, giving the day-split logic a real multi-day distance to work
+# with instead of relying on an artificially tiny max_daily_km to force a
+# split at all.
 _TRIP_WAYPOINTS = [
     {"coord": {"lat": 35.6841, "lon": -82.0091}},
-    {"coord": {"lat": 35.695, "lon": -82.010}},
+    {"coord": {"lat": 35.850, "lon": -81.950}},
 ]
 
 
@@ -213,7 +223,7 @@ def _trip_payload(**overrides):
         "theme": "flattest",
         "rider_band": "solo",
         "start_date": "2026-06-01",
-        "day_split": {"min_daily_km": 0.1, "max_daily_km": 1.0},
+        "day_split": {"min_daily_km": 0.1, "max_daily_km": 5.0},
     }
     payload.update(overrides)
     return payload

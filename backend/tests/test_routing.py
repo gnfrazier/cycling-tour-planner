@@ -26,7 +26,9 @@ def test_solve_route_produces_a_valid_route_for_every_theme_and_shape(base_graph
     schedule = WeightSchedule(THEME_PROFILES[theme])
     graph = score_edges(base_graph.copy(), schedule, bbox=bbox, providers=[OsmArtHistoryProvider()])
 
-    kwargs = {"end": DESTINATION} if shape is RouteShape.POINT_TO_POINT else {"end": None, "target_distance_km": 4.0}
+    # 20km, not a token few hundred meters -- exercises real route-shaping
+    # over a meaningful slice of the now-full-size ~80km test bbox.
+    kwargs = {"end": DESTINATION} if shape is RouteShape.POINT_TO_POINT else {"end": None, "target_distance_km": 20.0}
 
     route = solve_route(graph, START, shape=shape, theme=theme, cpus=2, **kwargs)
 
@@ -55,7 +57,7 @@ def test_loop_and_out_and_back_without_target_or_end_raises(base_graph, bbox, sh
 def test_out_and_back_retraces_the_same_outbound_and_return_path(base_graph, bbox):
     graph = score_edges(base_graph.copy(), WeightSchedule(THEME_PROFILES[Theme.FLATTEST]), bbox=bbox)
     route = solve_route(
-        graph, START, end=None, shape=RouteShape.OUT_AND_BACK, theme=Theme.FLATTEST, cpus=1, target_distance_km=4.0
+        graph, START, end=None, shape=RouteShape.OUT_AND_BACK, theme=Theme.FLATTEST, cpus=1, target_distance_km=20.0
     )
     half = len(route.coords) // 2
     outbound = route.coords[: half + 1]

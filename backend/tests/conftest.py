@@ -16,7 +16,7 @@ BACKEND_DIR = Path(__file__).parent.parent
 CACHE_DIR = BACKEND_DIR / ".cache"
 GRAPH_CACHE_DIR = CACHE_DIR / "graph"
 ELEVATION_TILE = CACHE_DIR / "elevation" / "nc_gedtm30.tif"
-TEST_BBOX = BBox(west=-82.450, south=35.320, east=-81.550, north=35.050)
+TEST_BBOX = BBox(west=-82.450, south=35.320, east=-81.550, north=36.050)
 
 
 @pytest.fixture(scope="session")
