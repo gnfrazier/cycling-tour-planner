@@ -66,8 +66,11 @@ void main() {
       expect(container.read(waypointsProvider)[1].coord.lat, 35.75);
       expect(container.read(waypointsProvider)[1].label, 'Boone');
 
+      // newIndex is the item's final index after removal (onReorderItem's
+      // contract) — moving index 0 to index 2 in a 3-item list means it
+      // ends up last, not at position 1.
       container.read(waypointsProvider.notifier).reorder(0, 2);
-      expect(container.read(waypointsProvider)[1].coord.lat, 35.68);
+      expect(container.read(waypointsProvider)[2].coord.lat, 35.68);
 
       container.read(waypointsProvider.notifier).removeAt(0);
       expect(container.read(waypointsProvider), hasLength(2));

@@ -17,9 +17,13 @@ class WaypointListNotifier extends Notifier<List<Waypoint>> {
     state = [...state, Waypoint(coord: coord, label: label)];
   }
 
+  /// `label` is not preserved from the previous value at this index unless
+  /// explicitly passed again — a coordinate change (e.g. a map tap) makes
+  /// any old typed address stale, so it's cleared rather than left
+  /// misleadingly attached to the new coordinate.
   void updateAt(int index, LatLon coord, {String? label}) {
     final updated = List<Waypoint>.from(state);
-    updated[index] = Waypoint(coord: coord, label: label ?? updated[index].label);
+    updated[index] = Waypoint(coord: coord, label: label);
     state = updated;
   }
 
@@ -28,11 +32,10 @@ class WaypointListNotifier extends Notifier<List<Waypoint>> {
     state = updated;
   }
 
-  /// ReorderableListView's own convention: `newIndex` is the target index
-  /// *before* the moved item is removed from its old position.
+  /// `newIndex` is the item's final index *after* removal — matches
+  /// ReorderableListView's `onReorderItem` callback contract.
   void reorder(int oldIndex, int newIndex) {
     final updated = List<Waypoint>.from(state);
-    if (oldIndex < newIndex) newIndex -= 1;
     final item = updated.removeAt(oldIndex);
     updated.insert(newIndex, item);
     state = updated;

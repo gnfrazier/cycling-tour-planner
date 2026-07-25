@@ -7,6 +7,7 @@ import '../../domain/route.dart' as domain;
 import '../../domain/theme.dart';
 import '../../state/routing_providers.dart';
 import '../theme_colors.dart';
+import 'map_zoom_controls.dart';
 
 // Matches the sidecar's /tiles/{z}/{x}/{y} bounds check (ctp_service/app.py).
 const _minZoom = 1.0;
@@ -122,41 +123,9 @@ class _RouteMapState extends ConsumerState<RouteMap> {
         Positioned(
           right: 16,
           bottom: 16,
-          child: _ZoomControls(onZoomIn: () => _zoomBy(1), onZoomOut: () => _zoomBy(-1)),
+          child: MapZoomControls(onZoomIn: () => _zoomBy(1), onZoomOut: () => _zoomBy(-1)),
         ),
       ],
-    );
-  }
-}
-
-class _ZoomControls extends StatelessWidget {
-  final VoidCallback onZoomIn;
-  final VoidCallback onZoomOut;
-
-  const _ZoomControls({required this.onZoomIn, required this.onZoomOut});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      elevation: 2,
-      borderRadius: BorderRadius.circular(8),
-      color: Theme.of(context).colorScheme.surface,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: 'Zoom in',
-            onPressed: onZoomIn,
-          ),
-          const Divider(height: 1),
-          IconButton(
-            icon: const Icon(Icons.remove),
-            tooltip: 'Zoom out',
-            onPressed: onZoomOut,
-          ),
-        ],
-      ),
     );
   }
 }
