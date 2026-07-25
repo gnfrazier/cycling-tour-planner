@@ -10,6 +10,7 @@ when `CTP_MODE=hosted`.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import shutil
 from contextlib import asynccontextmanager
@@ -25,13 +26,25 @@ from starlette.responses import PlainTextResponse
 from ctp_core.elevation import GedtmElevationProvider, enrich_elevation
 from ctp_core.export import export_route
 from ctp_core.graph import build_graph
-from ctp_core.providers import OsmArtHistoryProvider
+from ctp_core.providers import OsmArtHistoryProvider, OsmLodgingProvider
 from ctp_core.routing import solve_route
 from ctp_core.scoring import THEME_PROFILES, WeightSchedule, score_edges
-from ctp_core.types import BBox, Coord, ExportFormat, Graph, Route
+from ctp_core.trips import propose_day_alternative, solve_trip
+from ctp_core.types import BBox, Coord, ExportFormat, Graph, Route, RouteShape, Trip
+from ctp_core.weather import OpenMeteoHistoricalWeatherProvider
 
 from .config import Settings
-from .schemas import GeocodeResponse, HealthResponse, RouteGenerateRequest, RouteResponse
+from .schemas import (
+    DayAlternativeRequest,
+    DayAlternativeResponse,
+    DayModel,
+    GeocodeResponse,
+    HealthResponse,
+    RouteGenerateRequest,
+    RouteResponse,
+    TripGenerateRequest,
+    TripResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +119,10 @@ def create_app(mode: str | None = None, settings: Settings | None = None) -> Fas
         app.state.ready = False
         app.state.graph_base: Graph | None = None
         app.state.routes: dict[str, Route] = {}
+        app.state.trips: dict[str, Trip] = {}
         app.state.art_provider = OsmArtHistoryProvider()
+        app.state.lodging_provider = OsmLodgingProvider()
+        app.state.weather_provider = OpenMeteoHistoricalWeatherProvider()
 
         async def _load() -> None:
             try:
@@ -188,6 +204,161 @@ def _register_common_routes(app: FastAPI) -> None:
             content=data,
             media_type=_EXPORT_MEDIA_TYPES[fmt],
             headers={"Content-Disposition": f'attachment; filename="route.{fmt.value}"'},
+        )
+
+    @app.post("/trips/generate", response_model=TripResponse)
+    async def generate_trip(req: TripGenerateRequest) -> TripResponse:
+        if not app.state.ready:
+            raise HTTPException(status_code=503, detail="routing engine still starting up")
+
+        settings: Settings = app.state.settings
+        for index, waypoint in enumerate(req.waypoints):
+            _require_in_bbox(waypoint.coord.to_coord(), settings.bbox, f"waypoint {index}")
+
+        base_profile = THEME_PROFILES[req.theme]
+        tour_profile = dataclasses.replace(
+            base_profile, elevation_gain=req.elevation_gain, surface_preference=req.surface_preference
+        )
+        overrides = [override.to_weight_override(base_profile) for override in req.overrides]
+        day_split = req.day_split.to_day_split_config() if req.day_split else None
+
+        def _solve() -> Trip:
+            graph = app.state.graph_base.copy()
+            return solve_trip(
+                graph,
+                waypoints=[wp.to_waypoint() for wp in req.waypoints],
+                theme=req.theme,
+                tour_profile=tour_profile,
+                overrides=overrides,
+                rider_band=req.rider_band,
+                lodging_provider=app.state.lodging_provider,
+                weather_provider=app.state.weather_provider,
+                bbox=settings.bbox,
+                start_date=req.start_date,
+                day_split=day_split,
+                providers=[app.state.art_provider],
+            )
+
+        try:
+            trip = await run_in_threadpool(_solve)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        app.state.trips[trip.id] = trip
+        return TripResponse.from_trip(trip)
+
+    @app.post("/trips/{trip_id}/days/{day_index}/reroute", response_model=DayAlternativeResponse)
+    async def reroute_day(trip_id: str, day_index: int, req: DayAlternativeRequest) -> DayAlternativeResponse:
+        """FR42 — proposes an alternative for one day under a different
+        weighting, alongside the current day, without touching the stored
+        trip. The client draws both (ghost vs. bold); nothing is committed
+        until "make active" is called separately."""
+        trip = app.state.trips.get(trip_id)
+        if trip is None:
+            raise HTTPException(status_code=404, detail="trip not found")
+        if not 0 <= day_index < len(trip.days):
+            raise HTTPException(status_code=404, detail=f"trip has no day {day_index}")
+
+        settings: Settings = app.state.settings
+        base_profile = THEME_PROFILES[trip.theme]
+        alt_profile = dataclasses.replace(
+            base_profile, elevation_gain=req.elevation_gain, surface_preference=req.surface_preference
+        )
+
+        def _propose():
+            graph = app.state.graph_base.copy()
+            return propose_day_alternative(
+                graph,
+                trip,
+                day_index,
+                alt_profile,
+                lodging_provider=app.state.lodging_provider,
+                weather_provider=app.state.weather_provider,
+                bbox=settings.bbox,
+                start_date=trip.start_date,
+                providers=[app.state.art_provider],
+                segment_start_km=req.segment_start_km,
+                segment_end_km=req.segment_end_km,
+            )
+
+        try:
+            alternative = await run_in_threadpool(_propose)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return DayAlternativeResponse(
+            current=DayModel.from_day(trip.days[day_index]),
+            alternative=DayModel.from_day(alternative),
+        )
+
+    @app.post("/trips/{trip_id}/days/{day_index}/apply-alternative", response_model=TripResponse)
+    async def apply_day_alternative(trip_id: str, day_index: int, req: DayAlternativeRequest) -> TripResponse:
+        """FR42 "make active" — recomputes the same alternative and swaps it
+        into the stored trip in place. Per the PRD's own wording
+        ("recomputes the day's totals," singular), only that day's totals
+        change — later days keep their existing boundaries, since the
+        alternative shares the same start/end waypoints as the day it
+        replaces."""
+        trip = app.state.trips.get(trip_id)
+        if trip is None:
+            raise HTTPException(status_code=404, detail="trip not found")
+        if not 0 <= day_index < len(trip.days):
+            raise HTTPException(status_code=404, detail=f"trip has no day {day_index}")
+
+        settings: Settings = app.state.settings
+        base_profile = THEME_PROFILES[trip.theme]
+        alt_profile = dataclasses.replace(
+            base_profile, elevation_gain=req.elevation_gain, surface_preference=req.surface_preference
+        )
+
+        def _apply():
+            graph = app.state.graph_base.copy()
+            return propose_day_alternative(
+                graph,
+                trip,
+                day_index,
+                alt_profile,
+                lodging_provider=app.state.lodging_provider,
+                weather_provider=app.state.weather_provider,
+                bbox=settings.bbox,
+                start_date=trip.start_date,
+                providers=[app.state.art_provider],
+                segment_start_km=req.segment_start_km,
+                segment_end_km=req.segment_end_km,
+            )
+
+        try:
+            alternative = await run_in_threadpool(_apply)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        trip.days[day_index] = alternative
+        trip.total_distance_m = sum(day.distance_m for day in trip.days)
+        trip.total_elevation_gain_m = sum(day.elevation_gain_m for day in trip.days)
+        return TripResponse.from_trip(trip)
+
+    @app.post("/trips/{trip_id}/days/{day_index}/export")
+    async def export_day_endpoint(trip_id: str, day_index: int, fmt: ExportFormat) -> Response:
+        trip = app.state.trips.get(trip_id)
+        if trip is None:
+            raise HTTPException(status_code=404, detail="trip not found")
+        if not 0 <= day_index < len(trip.days):
+            raise HTTPException(status_code=404, detail=f"trip has no day {day_index}")
+
+        day = trip.days[day_index]
+        day_route = Route(
+            id=f"{trip_id}-day{day_index}",
+            theme=trip.theme,
+            shape=RouteShape.POINT_TO_POINT,
+            coords=day.coords,
+            distance_m=day.distance_m,
+            elevation_gain_m=day.elevation_gain_m,
+        )
+        data = await run_in_threadpool(export_route, day_route, fmt)
+        return Response(
+            content=data,
+            media_type=_EXPORT_MEDIA_TYPES[fmt],
+            headers={"Content-Disposition": f'attachment; filename="day{day_index + 1}.{fmt.value}"'},
         )
 
     @app.get("/geocode", response_model=GeocodeResponse)

@@ -152,3 +152,93 @@ def test_sidecar_only_routes_are_absent_in_hosted_mode():
         assert hosted_client.get("/tiles/1/0/0").status_code == 404
         # Common routes still registered.
         assert hosted_client.get("/health").status_code == 200
+
+
+# FR10-FR15/FR42/FR46 -- multi-day trip endpoints (Leg 3 / M5)
+
+_TRIP_WAYPOINTS = [
+    {"coord": {"lat": 35.6841, "lon": -82.0091}},
+    {"coord": {"lat": 35.695, "lon": -82.010}},
+]
+
+
+def _trip_payload(**overrides):
+    payload = {
+        "waypoints": _TRIP_WAYPOINTS,
+        "theme": "flattest",
+        "rider_band": "solo",
+        "start_date": "2026-06-01",
+        "day_split": {"min_daily_km": 0.1, "max_daily_km": 1.0},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_generate_trip_then_reroute_apply_and_export_every_day(client):
+    generate_resp = client.post("/trips/generate", json=_trip_payload())
+    assert generate_resp.status_code == 200
+    trip = generate_resp.json()
+    assert trip["theme"] == "flattest"
+    assert len(trip["days"]) > 1  # the tight day_split cap should force a split
+
+    reroute_resp = client.post(
+        f"/trips/{trip['id']}/days/0/reroute",
+        json={"surface_preference": -1.0},
+    )
+    assert reroute_resp.status_code == 200
+    comparison = reroute_resp.json()
+    assert "current" in comparison and "alternative" in comparison
+    assert comparison["current"]["index"] == 0
+
+    apply_resp = client.post(
+        f"/trips/{trip['id']}/days/0/apply-alternative",
+        json={"surface_preference": -1.0},
+    )
+    assert apply_resp.status_code == 200
+    updated_trip = apply_resp.json()
+    assert len(updated_trip["days"]) == len(trip["days"])  # later days untouched
+
+    for fmt, content_type_prefix in [
+        ("gpx", "application/gpx+xml"),
+        ("tcx", "application/vnd.garmin.tcx+xml"),
+        ("fit", "application/vnd.ant.fit"),
+    ]:
+        export_resp = client.post(f"/trips/{trip['id']}/days/0/export", params={"fmt": fmt})
+        assert export_resp.status_code == 200
+        assert export_resp.headers["content-type"].startswith(content_type_prefix)
+        assert len(export_resp.content) > 0
+
+
+def test_generate_trip_rejects_a_single_waypoint(client):
+    resp = client.post("/trips/generate", json=_trip_payload(waypoints=_TRIP_WAYPOINTS[:1]))
+    assert resp.status_code == 422
+
+
+def test_generate_trip_rejects_waypoint_outside_bbox(client):
+    payload = _trip_payload(waypoints=[_TRIP_WAYPOINTS[0], {"coord": {"lat": 36.5, "lon": -83.0}}])
+    resp = client.post("/trips/generate", json=payload)
+    assert resp.status_code == 400
+    assert "outside" in resp.json()["detail"]
+
+
+def test_generate_trip_rejects_out_of_range_override_day_index(client):
+    payload = _trip_payload(overrides=[{"day_index": 99, "elevation_gain": 1.0}])
+    resp = client.post("/trips/generate", json=payload)
+    assert resp.status_code == 400
+
+
+def test_reroute_unknown_trip_is_404(client):
+    resp = client.post("/trips/does-not-exist/days/0/reroute", json={})
+    assert resp.status_code == 404
+
+
+def test_reroute_unknown_day_index_is_404(client):
+    generate_resp = client.post("/trips/generate", json=_trip_payload())
+    trip_id = generate_resp.json()["id"]
+    resp = client.post(f"/trips/{trip_id}/days/99/reroute", json={})
+    assert resp.status_code == 404
+
+
+def test_export_day_unknown_trip_is_404(client):
+    resp = client.post("/trips/does-not-exist/days/0/export", params={"fmt": "gpx"})
+    assert resp.status_code == 404

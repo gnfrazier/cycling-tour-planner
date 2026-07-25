@@ -25,6 +25,14 @@ def _nearest_node(graph: Graph, coord: Coord) -> int:
     return ox.distance.nearest_nodes(graph, coord.lon, coord.lat)
 
 
+def _distances_from(graph: Graph, source: int) -> dict[int, float]:
+    """Shortest-path distance (by raw road length, theme-independent) from
+    source to every reachable node. Shared by `_node_near_distance` (loop/
+    out-and-back turnaround search) and `ctp_core/trips.py` (FR13's
+    per-edge trip-position estimate for a leg being re-scored)."""
+    return nx.single_source_dijkstra_path_length(graph, source, weight="length")
+
+
 def _node_near_distance(graph: Graph, source: int, target_m: float) -> int:
     """Pick a reachable node whose shortest-path distance from source is
     close to target_m — used to synthesize a turnaround/destination when the
@@ -35,7 +43,7 @@ def _node_near_distance(graph: Graph, source: int, target_m: float) -> int:
     theme-cheapest one is picked (weight="cost") — so different themes get a
     real chance to end up with different turnaround points, and therefore
     different routes, instead of always converging on the same node."""
-    lengths = nx.single_source_dijkstra_path_length(graph, source, weight="length")
+    lengths = _distances_from(graph, source)
     if not lengths:
         raise ValueError("no reachable nodes from the start point")
     band = {n: d for n, d in lengths.items() if abs(d - target_m) <= target_m * _DISTANCE_BAND_TOLERANCE}

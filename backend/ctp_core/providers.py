@@ -12,7 +12,7 @@ from typing import Protocol
 
 import osmnx as ox
 
-from .types import BBox, Graph
+from .types import BBox, Coord, Graph, LodgingOption
 
 
 class NodeDataProvider(Protocol):
@@ -51,11 +51,42 @@ class OsmArtHistoryProvider:
 
 
 class OsmLodgingProvider:
-    """FR14 — lodging/campground data along a route (M5). Not wired into
-    routing at M1; exists to prove the provider extension point is real
-    before a future plugin needs the same shape (Roadmap Leg 1)."""
+    """FR14 — lodging/campground data along a route (M5). `node_scores` was
+    built at M1 to prove the provider extension point before a future plugin
+    needed the same shape (Roadmap Leg 1); `options_near` is M5's real use —
+    surfacing actual named options to the rider, not just biasing a solve."""
 
     TAGS = {"tourism": ["hotel", "motel", "guest_house", "camp_site"]}
 
     def node_scores(self, graph: Graph, bbox: BBox) -> dict[int, float]:
         return _snap_pois_to_nodes(graph, bbox, self.TAGS)
+
+    def options_near(self, coord: Coord, radius_m: float) -> list[LodgingOption]:
+        """Lodging/campground options within radius_m of coord (typically a
+        day's end point), nearest first. Never raises — an upstream/query
+        failure or an empty result both resolve to an empty list, same
+        void-fallback posture as `elevation.py`'s 0.0m fallback."""
+        try:
+            pois = ox.features_from_point((coord.lat, coord.lon), tags=self.TAGS, dist=radius_m)
+        except Exception:
+            return []
+        if pois.empty:
+            return []
+
+        options = []
+        for _idx, row in pois.iterrows():
+            point = row.geometry.representative_point()
+            kind = next((row.get(key) for key in ("tourism",) if row.get(key)), "lodging")
+            if isinstance(kind, list):
+                kind = kind[0] if kind else "lodging"
+            distance_m = ox.distance.great_circle(coord.lat, coord.lon, point.y, point.x)
+            options.append(
+                LodgingOption(
+                    name=str(row.get("name") or "Unnamed"),
+                    kind=str(kind),
+                    coord=Coord(lat=point.y, lon=point.x),
+                    distance_from_day_end_m=float(distance_m),
+                )
+            )
+        options.sort(key=lambda opt: opt.distance_from_day_end_m)
+        return options
