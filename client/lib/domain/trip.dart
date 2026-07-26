@@ -27,6 +27,19 @@ enum RiderBand {
       );
 }
 
+/// QA: waypoints labeled 1, 2, 3 read as ambiguous next to "Day 1, Day 2,
+/// Day 3" — letters (A, B, C, ..., Z, AA, AB, ...) keep the two countable
+/// things visually distinct. Spreadsheet-column style so it never runs out.
+String waypointLetter(int index) {
+  var n = index;
+  var label = '';
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = n ~/ 26 - 1;
+  } while (n >= 0);
+  return label;
+}
+
 /// FR10 — a point a multi-day trip must honor; the route still optimizes for
 /// the selected theme between consecutive waypoints.
 class Waypoint {
@@ -174,6 +187,7 @@ class TripDay {
   final double distanceM;
   final double elevationGainM;
   final Map<String, double> surfaceBreakdownM;
+  final Map<String, double> trafficBreakdownM;
   final List<LodgingOption> lodgingOptions;
   final WeatherSummary? weather;
   final List<String> regroupCautions;
@@ -184,6 +198,7 @@ class TripDay {
     required this.distanceM,
     required this.elevationGainM,
     this.surfaceBreakdownM = const {},
+    this.trafficBreakdownM = const {},
     this.lodgingOptions = const [],
     this.weather,
     this.regroupCautions = const [],
@@ -199,6 +214,7 @@ class TripDay {
         distanceM: (json['distance_m'] as num).toDouble(),
         elevationGainM: (json['elevation_gain_m'] as num).toDouble(),
         surfaceBreakdownM: _parseBreakdown(json['surface_breakdown_m']),
+        trafficBreakdownM: _parseBreakdown(json['traffic_breakdown_m']),
         lodgingOptions: (json['lodging_options'] as List? ?? [])
             .map((o) => LodgingOption.fromJson(o as Map<String, dynamic>))
             .toList(),

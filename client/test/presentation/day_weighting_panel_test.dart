@@ -82,6 +82,12 @@ void main() {
 
     expect(find.text('Compare segment'), findsOneWidget);
     expect(container.read(dayAlternativeProvider).value, isNotNull);
+    // Wireframe 10a parity: legend, and a full stat table including traffic
+    // (not just distance/climbing/surface) with a delta callout.
+    expect(find.text('Current'), findsOneWidget);
+    expect(find.text('Proposed'), findsOneWidget);
+    expect(find.text('Traffic'), findsOneWidget);
+    expect(find.textContaining('+2.0 km'), findsOneWidget);
   });
 
   testWidgets('"Take proposed" applies the alternative and closes the compare panel', (tester) async {
@@ -89,7 +95,10 @@ void main() {
     expect(find.text('Compare segment'), findsOneWidget);
     final proposedDistance = container.read(dayAlternativeProvider).value!.alternative.distanceM;
 
-    await tester.tap(find.text('Take proposed'));
+    final takeButton = find.text('Take proposed →');
+    await tester.ensureVisible(takeButton);
+    await tester.pumpAndSettle();
+    await tester.tap(takeButton);
     await tester.pumpAndSettle();
 
     expect(find.text('Compare segment'), findsNothing);
@@ -99,7 +108,10 @@ void main() {
   testWidgets('"Keep current" discards the proposal without touching the trip', (tester) async {
     final container = await _pumpPanelWithDaySelected(tester, withProposal: true);
 
-    await tester.tap(find.text('Keep current'));
+    final keepButton = find.text('Keep current');
+    await tester.ensureVisible(keepButton);
+    await tester.pumpAndSettle();
+    await tester.tap(keepButton);
     await tester.pumpAndSettle();
 
     expect(find.text('Compare segment'), findsNothing);
@@ -109,7 +121,10 @@ void main() {
   testWidgets('"Save as variant" records it without discarding the working proposal', (tester) async {
     final container = await _pumpPanelWithDaySelected(tester, withProposal: true);
 
-    await tester.tap(find.text('Save as variant'));
+    final saveButton = find.text('Save as variant');
+    await tester.ensureVisible(saveButton);
+    await tester.pumpAndSettle();
+    await tester.tap(saveButton);
     await tester.pumpAndSettle();
 
     expect(container.read(savedVariantsProvider)[0], hasLength(1));

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 import '../../domain/route.dart' as domain;
+import '../../domain/trip.dart';
 import '../../presentation/theme_colors.dart';
 import '../../state/routing_providers.dart';
 import '../../state/trip_providers.dart';
@@ -129,7 +130,7 @@ class _TripMapState extends ConsumerState<TripMap> {
                       radius: 14,
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       child: Text(
-                        '${i + 1}',
+                        waypointLetter(i),
                         style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontSize: 12),
                       ),
                     ),

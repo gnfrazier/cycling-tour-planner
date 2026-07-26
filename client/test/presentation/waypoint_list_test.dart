@@ -36,7 +36,7 @@ void main() {
     expect(container.read(waypointsProvider).first.label, 'Marion, NC');
   });
 
-  testWidgets('each waypoint gets a numbered row showing its resolved label', (tester) async {
+  testWidgets('each waypoint gets a lettered row showing its resolved label', (tester) async {
     final container = await _pumpWaypointList(tester);
     container.read(waypointsProvider.notifier).add(const LatLon(35.68, -82.01), label: 'Marion, NC');
     container.read(waypointsProvider.notifier).add(const LatLon(35.9, -81.7), label: 'Blowing Rock, NC');
@@ -44,8 +44,9 @@ void main() {
 
     expect(find.text('Marion, NC'), findsOneWidget);
     expect(find.text('Blowing Rock, NC'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
+    // Letters, not numbers -- avoids reading as ambiguous next to "Day 1, Day 2".
+    expect(find.text('A'), findsOneWidget);
+    expect(find.text('B'), findsOneWidget);
   });
 
   testWidgets('tapping remove on a row deletes that waypoint', (tester) async {

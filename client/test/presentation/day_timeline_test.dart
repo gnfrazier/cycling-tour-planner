@@ -28,6 +28,8 @@ TripResult _trip({List<TripDay>? days}) => TripResult(
               coords: [LatLon(35.68, -82.01), LatLon(35.7, -82.05)],
               distanceM: 48000,
               elevationGainM: 300,
+              surfaceBreakdownM: {'asphalt': 40000.0, 'gravel': 8000.0},
+              trafficBreakdownM: {'residential': 30000.0, 'primary': 18000.0},
               lodgingOptions: [
                 LodgingOption(name: 'Boone Inn', kind: 'hotel', coord: LatLon(35.7, -82.05), distanceFromDayEndM: 100),
               ],
@@ -54,7 +56,8 @@ void main() {
     expect(find.text('Day 1'), findsNothing);
   });
 
-  testWidgets('renders a card per day with distance, lodging, and a caution badge', (tester) async {
+  testWidgets(
+      'renders a card per day with distance, surface/traffic mix, lodging, and a caution badge', (tester) async {
     final container = ProviderContainer(
       overrides: [tripGenerationProvider.overrideWith(() => _FixedTripNotifier(_trip()))],
     );
@@ -70,6 +73,8 @@ void main() {
     expect(find.text('Day 1'), findsOneWidget);
     expect(find.text('Day 2'), findsOneWidget);
     expect(find.text('48 km · ↑300 m'), findsOneWidget);
+    expect(find.text('Surface: asphalt 83%, gravel 17%'), findsOneWidget);
+    expect(find.text('Traffic: residential 63%, primary 38%'), findsOneWidget);
     expect(find.text('Boone Inn'), findsOneWidget);
     expect(find.text('No lodging found nearby'), findsOneWidget);
     expect(find.text('Caution'), findsOneWidget);

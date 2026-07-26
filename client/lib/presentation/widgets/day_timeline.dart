@@ -18,7 +18,7 @@ class DayTimeline extends ConsumerWidget {
     final savedVariants = ref.watch(savedVariantsProvider);
 
     return SizedBox(
-      height: 144,
+      height: 196,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.all(8),
@@ -38,6 +38,17 @@ class DayTimeline extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Same "top tags by share of distance" summary route_planner_screen.dart's
+/// _RouteSummary uses (PRD §6: surface/traffic must always be visible on a
+/// route/day, not hidden behind a details screen) — kept as its own small
+/// copy per file, same as day_weighting_panel.dart's compare-table version.
+String _formatBreakdown(Map<String, double> breakdownM) {
+  final total = breakdownM.values.fold(0.0, (sum, m) => sum + m);
+  if (total <= 0) return 'unknown';
+  final sorted = breakdownM.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+  return sorted.take(2).map((e) => '${e.key.replaceAll('_', ' ')} ${(e.value / total * 100).round()}%').join(', ');
 }
 
 class _DayCard extends StatelessWidget {
@@ -80,6 +91,18 @@ class _DayCard extends StatelessWidget {
             Text(
               '${day.distanceKm.toStringAsFixed(0)} km · ↑${day.elevationGainM.toStringAsFixed(0)} m',
               style: const TextStyle(fontSize: 12),
+            ),
+            Text(
+              'Surface: ${_formatBreakdown(day.surfaceBreakdownM)}',
+              style: const TextStyle(fontSize: 11),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+            Text(
+              'Traffic: ${_formatBreakdown(day.trafficBreakdownM)}',
+              style: const TextStyle(fontSize: 11),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
             Text(lodging, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 1),
             if (weather != null)

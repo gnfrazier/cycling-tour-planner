@@ -70,6 +70,13 @@ def _surface_tag(edge_data: dict) -> str | None:
     return surface
 
 
+def _highway_tag(edge_data: dict) -> str:
+    highway = edge_data.get("highway")
+    if isinstance(highway, list):
+        highway = highway[0] if highway else None
+    return highway or "unknown"
+
+
 def _is_narrow(edge_data: dict) -> bool:
     width = edge_data.get("width")
     if isinstance(width, list):
@@ -197,6 +204,19 @@ def _surface_breakdown(graph: Graph, path: list[int]) -> dict[str, float]:
     return breakdown
 
 
+def _traffic_breakdown(graph: Graph, path: list[int]) -> dict[str, float]:
+    """PRD §6 — same "always visible" requirement as `_surface_breakdown`,
+    keyed by OSM `highway` tag instead of `surface` (mirrors
+    routing.py's `_tag_breakdown_m(graph, path, _highway_tag)` for the
+    single-route case)."""
+    breakdown: dict[str, float] = {}
+    for u, v in zip(path, path[1:]):
+        edge_data = _edge_between(graph, u, v)
+        tag = _highway_tag(edge_data)
+        breakdown[tag] = breakdown.get(tag, 0.0) + edge_data.get("length", 0.0)
+    return breakdown
+
+
 def _regroup_cautions(graph: Graph, path: list[int], rider_band: RiderBand) -> list[str]:
     """FR46 — flags narrow/unpaved runs long enough to matter for a group,
     with a rough km marker into the day. Solo riders get no cautions."""
@@ -298,6 +318,7 @@ def solve_trip(
                 distance_m=distance_m,
                 elevation_gain_m=elevation_gain_m,
                 surface_breakdown_m=_surface_breakdown(working, day_path),
+                traffic_breakdown_m=_traffic_breakdown(working, day_path),
                 lodging_options=lodging_provider.options_near(coords[-1], _LODGING_SEARCH_RADIUS_M),
                 weather=weather,
                 regroup_cautions=_regroup_cautions(working, day_path, rider_band),
@@ -371,6 +392,7 @@ def propose_day_alternative(
         distance_m=alternative.distance_m,
         elevation_gain_m=alternative.elevation_gain_m,
         surface_breakdown_m=alternative.surface_breakdown_m,
+        traffic_breakdown_m=alternative.traffic_breakdown_m,
         lodging_options=alternative.lodging_options,
         weather=alternative.weather,
         regroup_cautions=alternative.regroup_cautions,

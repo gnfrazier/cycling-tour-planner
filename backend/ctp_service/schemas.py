@@ -190,6 +190,7 @@ class DayModel(BaseModel):
     distance_m: float
     elevation_gain_m: float
     surface_breakdown_m: dict[str, float]
+    traffic_breakdown_m: dict[str, float]
     lodging_options: list[LodgingOptionModel]
     weather: WeatherSummaryModel | None
     regroup_cautions: list[str]
@@ -202,6 +203,7 @@ class DayModel(BaseModel):
             distance_m=day.distance_m,
             elevation_gain_m=day.elevation_gain_m,
             surface_breakdown_m=day.surface_breakdown_m,
+            traffic_breakdown_m=day.traffic_breakdown_m,
             lodging_options=[LodgingOptionModel.from_lodging_option(o) for o in day.lodging_options],
             weather=WeatherSummaryModel.from_weather_summary(day.weather) if day.weather else None,
             regroup_cautions=day.regroup_cautions,

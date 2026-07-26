@@ -85,7 +85,7 @@ void main() {
       final proposedDistance = container.read(dayAlternativeProvider).value!.alternative.distanceM;
 
       // 6. Take the proposed alternative — it becomes the trip's day 1.
-      final takeButton = find.text('Take proposed');
+      final takeButton = find.text('Take proposed →');
       await tester.ensureVisible(takeButton);
       await tester.pumpAndSettle();
       await tester.tap(takeButton);

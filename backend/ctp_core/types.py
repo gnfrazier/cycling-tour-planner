@@ -167,6 +167,7 @@ class Day:
     distance_m: float
     elevation_gain_m: float
     surface_breakdown_m: dict[str, float]  # FR12 — OSM `surface` tag -> meters
+    traffic_breakdown_m: dict[str, float]  # PRD §6 — OSM `highway` tag -> meters
     lodging_options: list[LodgingOption]  # FR14
     weather: WeatherSummary | None  # FR15
     regroup_cautions: list[str]  # FR46

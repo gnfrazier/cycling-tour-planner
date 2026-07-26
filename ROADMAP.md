@@ -120,7 +120,7 @@ Turn one route into a real multi-day tour: waypoints a route must honor, daily m
 
 **Deliverables shipped (Desktop client — Flutter, 70 client tests passing across the whole suite, `flutter analyze` clean)**: the Stage B gap above is closed — `TripPlannerScreen` (reachable from the single-route planner's AppBar) makes every backend endpoint above usable from the app.
 - Waypoint entry (FR10) — `WaypointList`: reorderable rows, per-row geocode search, "locate on map" (tap-to-fill), remove; a trailing row adds new waypoints the same way
-- `TripMap` — numbered waypoint markers, tap-to-add, one polyline per generated day
+- `TripMap` — lettered waypoint markers (A, B, C, ... — not numbered, which read as ambiguous next to "Day 1, Day 2"), tap-to-add, one polyline per generated day
 - Day timeline (FR11/FR14/FR15/FR46) — `DayTimeline`: horizontal day cards showing distance/elevation, first lodging option, weather range, a regroup-caution badge, and a saved-variant count, per wireframe `9a-day-timeline-variant-desktop.png`
 - Weighting-slider panel (FR13) — `DayWeightingPanel`: tour-level and day/segment-scoped elevation-gain/surface-preference sliders (blank segment bounds = whole day); an advanced day-split section for FR11's caps (blank = the rider-band server default)
 - Alternatives-compare screen (FR42) — propose → ghost-vs-bold map comparison → side-by-side stat table → take / keep / save-as-variant, per wireframe `10a-compare-alternatives-desktop.png`; saved variants are session-local (FR21's cross-device sync is Leg 4, not built here)
@@ -129,6 +129,11 @@ Turn one route into a real multi-day tour: waypoints a route must honor, daily m
 Scope bar for this pass: functional/semantic parity with the wireframes (same data, same actions), not pixel-fidelity — no elevation-curve chart. FR44 (cue sheet) stays out of scope, matching the backend deliverable list above.
 
 **Learning goal:** Exercise Leg 1's `weights.at(position)` seam for real — resolve tour-default vs. day-override vs. segment-override profiles per edge. Because that lookup was built at M1 returning a constant, this is a change to one function, not a new solver (Architecture §5.5) — confirmed in the build: `WeightSchedule.at()` and `score_edges`'s new `positions_km` parameter carry FR13; `routing.py`'s actual Dijkstra solve (`_shortest_path`) is unchanged, it only gained one shared helper (`_distances_from`, factored out of `_node_near_distance`) that FR13's per-leg position estimate now reuses too. Weather provider is resolved as Open-Meteo (no longer an open question).
+
+**QA follow-ups (hand-tested against the wireframes after ship):**
+- Fixed: waypoint markers relettered A/B/C (was 1/2/3, ambiguous next to day numbers); day cards now show surface/traffic mix alongside distance/elevation (`Day.traffic_breakdown_m`/`DayModel.traffic_breakdown_m` added, mirroring the single-route `traffic_breakdown_m` the routes endpoint already had); the compare panel (`_ComparePanel`) redesigned to match wireframe `10a`'s right-sidebar concept — current/proposed legend, full current-vs-proposed-vs-delta stat table, a caution banner, and a primary "Take" action over secondary Keep/Save-variant actions.
+- **Open, not yet built:** a 4-day+ trip can time out `/trips/generate` today — it's a single synchronous solve with no partial-progress channel. QA asked for progressive per-day generation (plot day N as it completes, update a "Generating day N" status, build each day's card as it lands) — deferred pending investigation into whether the timeout is a genuinely slow solve vs. a client/proxy timeout ceiling, and which transport (SSE, WebSocket, or trip-id + polling) fits before committing to an approach.
+- **Backlog:** a standalone spike on the route-scoring engine itself was requested — flagged here as a tracked follow-up, not scoped or started.
 
 ---
 

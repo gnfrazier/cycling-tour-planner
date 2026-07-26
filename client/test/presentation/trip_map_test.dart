@@ -46,7 +46,7 @@ TripResult _twoDayTrip() => TripResult(
     );
 
 void main() {
-  testWidgets('TripMap renders a numbered marker per waypoint and a polyline per day', (tester) async {
+  testWidgets('TripMap renders a lettered marker per waypoint and a polyline per day', (tester) async {
     final trip = _twoDayTrip();
     final container = ProviderContainer(
       overrides: [

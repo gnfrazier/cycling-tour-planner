@@ -118,7 +118,7 @@ class _WaypointRowState extends ConsumerState<_WaypointRow> {
             index: widget.index,
             child: const Padding(padding: EdgeInsets.only(right: 8), child: Icon(Icons.drag_handle)),
           ),
-          CircleAvatar(radius: 12, child: Text('${widget.index + 1}', style: const TextStyle(fontSize: 12))),
+          CircleAvatar(radius: 12, child: Text(waypointLetter(widget.index), style: const TextStyle(fontSize: 12))),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(

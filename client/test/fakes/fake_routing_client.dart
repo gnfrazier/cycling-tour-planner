@@ -72,6 +72,8 @@ class FakeRoutingClient extends RoutingClient {
               coords: waypoints.map((w) => w.coord).toList(),
               distanceM: 48000.0,
               elevationGainM: 365.0,
+              surfaceBreakdownM: const {'asphalt': 40000.0, 'gravel': 8000.0},
+              trafficBreakdownM: const {'residential': 30000.0, 'primary': 18000.0},
             ),
           ],
           totalDistanceM: 48000.0,
@@ -104,6 +106,8 @@ class FakeRoutingClient extends RoutingClient {
       coords: day.coords,
       distanceM: day.distanceM + 2000.0,
       elevationGainM: day.elevationGainM + 100.0,
+      surfaceBreakdownM: const {'asphalt': 30000.0, 'gravel': 20000.0},
+      trafficBreakdownM: const {'residential': 20000.0, 'track': 30000.0},
     );
     return DayAlternative(current: day, alternative: alternative);
   }
